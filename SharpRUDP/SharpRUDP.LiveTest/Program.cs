@@ -11,6 +11,8 @@ namespace SharpRUDP.LiveTest
             new Test.MediumPacketTest().MediumPacket(); Console.ReadLine();
             new Test.MultiPacketSmallTest().MultiPacketSmall(); Console.ReadLine();
             new Test.MultiPacketMediumTest().MultiPacketMedium(); Console.ReadLine();
+            new Test.MultiPacketLargeTest().MultiPacketLarge(); Console.ReadLine();
+            new Test.MultiPacketExtraLargeTest().MultiPacketExtraLarge(); Console.ReadLine();
         }
     }
 }

@@ -6,10 +6,10 @@ using System.Threading;
 namespace SharpRUDP.Test
 {
     [TestClass]
-    public class MultiPacketMediumTest
+    public class MultiPacketExtraLargeTest
     {
-        [TestMethod, Timeout(30000)]
-        public void MultiPacketMedium()
+        [TestMethod, Timeout(60000)]
+        public void MultiPacketExtraLarge()
         {
             int maxPackets = 100;
             bool finished = false;
@@ -22,7 +22,7 @@ namespace SharpRUDP.Test
                 Thread.Sleep(10);
             Assert.AreEqual(ConnectionState.OPEN, c.State);
 
-            byte[] buf = new byte[16 * 1024];
+            byte[] buf = new byte[64 * 1024];
             Random r = new Random(DateTime.Now.Second);
             r.NextBytes(buf);
 
