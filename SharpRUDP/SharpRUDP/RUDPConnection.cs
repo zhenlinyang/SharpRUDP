@@ -19,6 +19,7 @@ namespace SharpRUDP
         public int SequenceLimit { get; set; }
         public int ClientStartSequence { get; set; }
         public int ServerStartSequence { get; set; }
+        public int MaxSequenceNumber { get; set; }
         public int MTU { get; set; }
 
         public delegate void dlgEventVoid();
@@ -34,6 +35,7 @@ namespace SharpRUDP
 
         private bool _isAlive = false;
         private int _maxMTU { get { return (int)(MTU * 0.80); } }
+
         private object _debugMutex = new object();
         private byte[] _packetHeader = { 0xDE, 0xAD, 0xBE, 0xEF };
         private byte[] _internalHeader = { 0xFA, 0xCE, 0xFE, 0xED };
@@ -49,6 +51,7 @@ namespace SharpRUDP
             SequenceLimit = int.MaxValue / 2;
             ClientStartSequence = 100;
             ServerStartSequence = 200;
+            MaxSequenceNumber = int.MaxValue / 2;
             State = ConnectionState.CLOSED;
         }
 
@@ -150,6 +153,7 @@ namespace SharpRUDP
 
         public void Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT, RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null)
         {
+            bool reset = false;
             InitSequence(destination);
             RUDPConnectionData sq = _sequences[destination.ToString()];
             if ((data != null && data.Length < _maxMTU) || data == null)
@@ -163,6 +167,8 @@ namespace SharpRUDP
                     Data = data
                 });
                 sq.PacketId++;
+                if (!IsServer && sq.Local > MaxSequenceNumber)
+                    reset = true;
             }
             else if (data != null && data.Length >= _maxMTU)
             {
@@ -191,11 +197,22 @@ namespace SharpRUDP
                     SendPacket(p);
                 }
                 sq.PacketId++;
+                if (!IsServer && sq.Local > MaxSequenceNumber)
+                    reset = true;
             }
             else
                 throw new Exception("This should not happen");
             if (sq.PacketId > PacketIdLimit)
                 sq.PacketId = 0;
+            if (reset)
+            {
+                SendPacket(new RUDPPacket()
+                {
+                    Dst = destination,
+                    Type = RUDPPacketType.RST
+                });
+                sq.Local = IsServer ? ServerStartSequence : ClientStartSequence;
+            }
         }
 
         // ###############################################################################################################################
@@ -252,7 +269,7 @@ namespace SharpRUDP
                 sq.Local++;
                 p.Sent = dtNow;
                 lock (sq.Pending)
-                    foreach (RUDPPacket unconfirmed in sq.Pending.Where(x => (dtNow - p.Sent).Seconds >= 1))
+                    foreach (RUDPPacket unconfirmed in sq.Pending.Where(x => (dtNow - x.Sent).Seconds >= 1))
                         RetransmitPacket(unconfirmed);
                 Debug("SEND -> {0}: {1}", p.Dst, p);
             }
@@ -266,6 +283,7 @@ namespace SharpRUDP
             }
 
             Send(p.Dst, p.ToByteArray(_packetHeader));
+            //Thread.Sleep(10);
         }
 
         public void ProcessRecvQueue()
@@ -279,15 +297,19 @@ namespace SharpRUDP
                     PacketsToRecv.AddRange(sq.ReceivedPackets.OrderBy(x => x.Seq));
                 PacketsToRecv = PacketsToRecv.GroupBy(x => x.Seq).Select(g => g.First()).ToList();
 
-                for (int i = 0; i < PacketsToRecv.Count; i++)
+                foreach(RUDPPacket p in PacketsToRecv)
                 {
-                    RUDPPacket p = PacketsToRecv[i];
-
                     lock (sq.ReceivedPackets)
                         sq.ReceivedPackets.Remove(p);
 
-                    if (p.Seq < sq.Remote)
+                    if (p.Processed)
                         continue;
+
+                    if (p.Seq < sq.Remote)
+                    {
+                        sq.ReceivedPackets.Add(p);
+                        continue;
+                    }
 
                     if (p.Seq > sq.Remote)
                     {
@@ -300,6 +322,7 @@ namespace SharpRUDP
                     if (p.Qty == 0)
                     {
                         sq.Remote++;
+                        p.Processed = true;
 
                         if (p.Type == RUDPPacketType.SYN)
                         {
@@ -316,12 +339,19 @@ namespace SharpRUDP
                             continue;
                         }
 
-                        OnPacketReceived?.Invoke(p);
+                        if(p.Type == RUDPPacketType.RST)
+                        {
+                            sq.Remote = IsServer ? ClientStartSequence : ServerStartSequence;
+                            continue;
+                        }
+
+                        if(p.Type == RUDPPacketType.DAT)
+                            OnPacketReceived?.Invoke(p);
                     }
                     else
                     {
                         // Multipacket!
-                        List<RUDPPacket> multiPackets = PacketsToRecv.Skip(i).Take(p.Qty).ToList();
+                        List<RUDPPacket> multiPackets = PacketsToRecv.Where(x => x.Id == p.Id).ToList();
                         if (multiPackets.Count == p.Qty)
                         {
                             Debug("MULTIPACKET {0}", p.Id);
@@ -332,6 +362,7 @@ namespace SharpRUDP
                                 using (BinaryWriter bw = new BinaryWriter(ms))
                                     foreach (RUDPPacket mp in multiPackets)
                                     {
+                                        mp.Processed = true;
                                         bw.Write(mp.Data);
                                         Debug("RECV MP <- {0}: {1}", p.Src, mp);
                                     }
@@ -341,7 +372,6 @@ namespace SharpRUDP
 
                             OnPacketReceived?.Invoke(new RUDPPacket()
                             {
-                                ACK = p.ACK,
                                 Retransmit = p.Retransmit,
                                 Sent = p.Sent,
                                 Data = buf,
@@ -356,7 +386,6 @@ namespace SharpRUDP
                             });
 
                             sq.Remote += p.Qty;
-                            i += p.Qty;
                         }
                         else
                         {

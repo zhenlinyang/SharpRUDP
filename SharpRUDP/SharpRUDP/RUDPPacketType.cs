@@ -5,6 +5,7 @@
         NUL,
         SYN,
         DAT,
-        ACK
+        ACK,
+        RST
     }
 }
