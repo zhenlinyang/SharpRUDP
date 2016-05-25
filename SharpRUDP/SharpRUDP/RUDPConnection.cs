@@ -21,7 +21,8 @@ namespace SharpRUDP
         public int ServerStartSequence { get; set; }
         public int MTU { get; set; }
         public byte[] PacketHeader { get; set; }
-        public byte[] InternalPacketHeader { get; set; }
+        public byte[] InternalACKHeader { get; set; }
+        public byte[] InternalKeepAliveHeader { get; set; }
 
         public delegate void dlgEventVoid();
         public delegate void dlgEventConnection(IPEndPoint ep);
@@ -48,8 +49,9 @@ namespace SharpRUDP
             ClientStartSequence = 100;
             ServerStartSequence = 200;
             State = ConnectionState.CLOSED;
-            PacketHeader = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
-            InternalPacketHeader = new byte[] { 0xFA, 0xCE, 0xFE, 0xED };
+            PacketHeader = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF }; // DeadBeef
+            InternalACKHeader = new byte[] { 0xFA, 0xCE, 0xFE, 0xED }; // FaceFeed
+            InternalKeepAliveHeader = new byte[] { 0xBE, 0xEF, 0xFA, 0xCE }; // BeefFace (lol)
         }
 
         private void Debug(object obj, params object[] args)
@@ -124,21 +126,23 @@ namespace SharpRUDP
                 p.Received = DateTime.Now;
                 InitSequence(p.Src);
                 RUDPConnectionData sq = _sequences[p.Src.ToString()];
-                Send(p.Src, new RUDPInternalPacket.ACKPacket() { header = InternalPacketHeader, sequence = p.Seq }.Serialize());
+                Send(p.Src, new RUDPInternalPackets.ACKPacket() { header = InternalACKHeader, sequence = p.Seq }.Serialize());
                 Debug("ACK SEND -> {0}: {1}", p.Src, p.Seq);
                 lock (sq.ReceivedPackets)
                     sq.ReceivedPackets.Add(p);
             }
-            else if (length > InternalPacketHeader.Length && data.Take(InternalPacketHeader.Length).SequenceEqual(InternalPacketHeader))
+            else if (length > InternalACKHeader.Length && data.Take(InternalACKHeader.Length).SequenceEqual(InternalACKHeader))
             {
                 IPEndPoint src = IsServer ? ep : RemoteEndPoint;
                 InitSequence(src);
                 RUDPConnectionData sq = _sequences[src.ToString()];
-                RUDPInternalPacket.ACKPacket ack = RUDPInternalPacket.ACKPacket.Deserialize(data);
+                RUDPInternalPackets.ACKPacket ack = RUDPInternalPackets.ACKPacket.Deserialize(data);
                 Debug("ACK RECV <- {0}: {1}", src, ack.sequence);
                 lock (sq.Pending)
                     sq.Pending.RemoveAll(x => x.Seq == ack.sequence);
             }
+            else if (length > InternalKeepAliveHeader.Length && data.Take(InternalKeepAliveHeader.Length).SequenceEqual(InternalKeepAliveHeader))
+            { }
             else
                 Console.WriteLine("[{0}] RAW RECV: [{1}]", GetType().ToString(), Encoding.ASCII.GetString(data, 0, length));
         }
@@ -209,6 +213,17 @@ namespace SharpRUDP
                     Type = RUDPPacketType.RST
                 });
                 sq.Local = IsServer ? ServerStartSequence : ClientStartSequence;
+            }
+        }
+
+        public void SendKeepAlive()
+        {
+            if(!IsServer)
+            {
+                InitSequence(RemoteEndPoint);
+                RUDPConnectionData sq = _sequences[RemoteEndPoint.ToString()];
+                Debug("KEEPALIVE -> {0}", RemoteEndPoint);
+                Send(RemoteEndPoint, new RUDPInternalPackets.KeepAlivePacket() { header = InternalKeepAliveHeader }.Serialize());
             }
         }
 
