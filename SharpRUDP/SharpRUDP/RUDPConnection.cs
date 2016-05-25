@@ -19,7 +19,6 @@ namespace SharpRUDP
         public int SequenceLimit { get; set; }
         public int ClientStartSequence { get; set; }
         public int ServerStartSequence { get; set; }
-        public int MaxSequenceNumber { get; set; }
         public int MTU { get; set; }
 
         public delegate void dlgEventVoid();
@@ -51,7 +50,6 @@ namespace SharpRUDP
             SequenceLimit = int.MaxValue / 2;
             ClientStartSequence = 100;
             ServerStartSequence = 200;
-            MaxSequenceNumber = int.MaxValue / 2;
             State = ConnectionState.CLOSED;
         }
 
@@ -167,7 +165,7 @@ namespace SharpRUDP
                     Data = data
                 });
                 sq.PacketId++;
-                if (!IsServer && sq.Local > MaxSequenceNumber)
+                if (!IsServer && sq.Local > SequenceLimit)
                     reset = true;
             }
             else if (data != null && data.Length >= _maxMTU)
@@ -197,7 +195,7 @@ namespace SharpRUDP
                     SendPacket(p);
                 }
                 sq.PacketId++;
-                if (!IsServer && sq.Local > MaxSequenceNumber)
+                if (!IsServer && sq.Local > SequenceLimit)
                     reset = true;
             }
             else
@@ -246,10 +244,6 @@ namespace SharpRUDP
             return rv;
         }
         
-        // ###############################################################################################################################
-        // ###############################################################################################################################
-        // ###############################################################################################################################
-
         private void RetransmitPacket(RUDPPacket p)
         {
             p.Retransmit = true;
