@@ -39,6 +39,7 @@ namespace SharpRUDP
         private Dictionary<string, IPEndPoint> _clients { get; set; }
         private Dictionary<string, RUDPConnectionData> _sequences { get; set; }
         private bool _isAlive = false;
+        private bool _disconnectFlag = false;
         private int _maxMTU { get { return (int)(MTU * 0.80); } }
         private object _debugMutex = new object();
         private Thread _thRecv;
@@ -103,7 +104,7 @@ namespace SharpRUDP
         {
             _thRecv = new Thread(() =>
             {
-                while(_isAlive)
+                while(_isAlive && !_disconnectFlag)
                 {
                     ProcessRecvQueue();
                     Thread.Sleep(10);
@@ -111,11 +112,17 @@ namespace SharpRUDP
             });
             _thKeepAlive = new Thread(() =>
             {
-                while (_isAlive)
+                while (_isAlive && !_disconnectFlag)
                 {
                     ProcessKeepAlive();
                     Thread.Sleep(1000);
                 }
+                new Thread(() =>
+                {
+                    Thread.Sleep(1000);
+                    if (_disconnectFlag)
+                        Disconnect();
+                }).Start();
             });
             if (start)
             {
@@ -128,7 +135,11 @@ namespace SharpRUDP
         {
             State = ConnectionState.CLOSING;
             _isAlive = false;
-            _socket.Shutdown(SocketShutdown.Both);
+            try
+            {
+                _socket.Shutdown(SocketShutdown.Both);
+            }
+            catch(Exception) { }
             if (IsServer)
                 _socket.Close();
             if (_thKeepAlive != null)
@@ -352,9 +363,14 @@ namespace SharpRUDP
                     if (IsServer)
                         disconnectSequences.Add(sq.EndPoint);
                     else
-                        Disconnect();
+                    {
+                        _disconnectFlag = true;
+                        break;
+                    }
                 }
             }
+            if (_disconnectFlag)
+                return;
             foreach (IPEndPoint ep in disconnectSequences)
             {
                 OnClientDisconnect?.Invoke(ep);
