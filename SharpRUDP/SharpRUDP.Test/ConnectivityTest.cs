@@ -1,4 +1,5 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Net;
 using System.Text;
 using System.Threading;
 
@@ -37,14 +38,16 @@ namespace SharpRUDP.Test
             Assert.AreEqual(ConnectionState.OPEN, c.State);
 
             int counter = 0;
-            int maxPackets = 100;
+            int maxPackets = 10;
             bool finished = false;
             s.OnPacketReceived += (RUDPPacket p) =>
             {
                 Assert.AreEqual(counter, int.Parse(Encoding.ASCII.GetString(p.Data)));
                 counter++;
-                if (counter >= maxPackets)
-                    finished = true;
+            };
+            c.OnDisconnected += (IPEndPoint ep) =>
+            {
+                finished = true;
             };
 
             for (int i = 0; i < maxPackets; i++)
@@ -55,13 +58,8 @@ namespace SharpRUDP.Test
                         s.Disconnect();
             }
 
-            Thread.Sleep(5000);
-            c.SendKeepAlive();
-
-            while (true)
-            {
+            while (!finished)
                 Thread.Sleep(1000);
-            }
 
             s.Disconnect();
             c.Disconnect();
