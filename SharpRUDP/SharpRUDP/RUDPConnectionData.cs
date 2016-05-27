@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Net;
 
 namespace SharpRUDP
@@ -12,6 +13,7 @@ namespace SharpRUDP
         public List<RUDPPacket> ReceivedPackets { get; set; }
         public List<RUDPPacket> Pending { get; set; }
         public ConnectionState State { get; set; }
+        public DateTime LastPacketDate { get; set; }
 
         public RUDPConnectionData()
         {

@@ -120,13 +120,14 @@ namespace SharpRUDP
         public override void PacketReceive(IPEndPoint ep, byte[] data, int length)
         {
             base.PacketReceive(ep, data, length);
+            DateTime dtNow = DateTime.Now;
             if (length > PacketHeader.Length && data.Take(PacketHeader.Length).SequenceEqual(PacketHeader))
             {
                 RUDPPacket p = RUDPPacket.Deserialize(PacketHeader, data);
                 p.Src = IsServer ? ep : RemoteEndPoint;
                 p.Received = DateTime.Now;
-                InitSequence(p.Src);
-                RUDPConnectionData sq = _sequences[p.Src.ToString()];
+                RUDPConnectionData sq = GetSequence(p.Src);
+                sq.LastPacketDate = dtNow;
                 Send(p.Src, new RUDPInternalPackets.ACKPacket() { header = InternalPacketHeader, sequence = p.Seq }.Serialize());
                 Debug("ACK SEND -> {0}: {1}", p.Src, p.Seq);
                 lock (sq.ReceivedPackets)
@@ -135,8 +136,8 @@ namespace SharpRUDP
             else if (length > InternalPacketHeader.Length && data.Take(InternalPacketHeader.Length).SequenceEqual(InternalPacketHeader))
             {
                 IPEndPoint src = IsServer ? ep : RemoteEndPoint;
-                InitSequence(src);
-                RUDPConnectionData sq = _sequences[src.ToString()];
+                RUDPConnectionData sq = GetSequence(src);
+                sq.LastPacketDate = dtNow;
                 RUDPInternalPackets.ACKPacket ack = RUDPInternalPackets.ACKPacket.Deserialize(data);
                 Debug("ACK RECV <- {0}: {1}", src, ack.sequence);
                 lock (sq.Pending)
@@ -154,8 +155,7 @@ namespace SharpRUDP
         public void Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT, RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null)
         {
             bool reset = false;
-            InitSequence(destination);
-            RUDPConnectionData sq = _sequences[destination.ToString()];
+            RUDPConnectionData sq = GetSequence(destination);
             if ((data != null && data.Length < _maxMTU) || data == null)
             {
                 SendPacket(new RUDPPacket()
@@ -215,31 +215,33 @@ namespace SharpRUDP
             }
         }
 
-        private bool InitSequence(RUDPPacket p)
+
+        private RUDPConnectionData GetSequence(RUDPPacket p)
         {
-            return InitSequence(p.Src == null ? p.Dst : p.Src);
+            return GetSequence((p.Src == null) ? p.Dst : p.Src);
         }
 
-        private bool InitSequence(IPEndPoint ep)
+        private RUDPConnectionData GetSequence(IPEndPoint ep)
         {
-            bool rv = false;
             lock (_sequences)
             {
                 if (!_sequences.ContainsKey(ep.ToString()))
                 {
-                    _sequences[ep.ToString()] = new RUDPConnectionData()
+                    if (!_sequences.ContainsKey(ep.ToString()))
                     {
-                        EndPoint = ep,
-                        Local = IsServer ? ServerStartSequence : ClientStartSequence,
-                        Remote = IsServer ? ClientStartSequence : ServerStartSequence
-                    };
-                    while (!_sequences.ContainsKey(ep.ToString()))
-                        Thread.Sleep(10);
-                    Debug("NEW SEQUENCE: {0}", _sequences[ep.ToString()]);
-                    rv = true;
+                        _sequences[ep.ToString()] = new RUDPConnectionData()
+                        {
+                            EndPoint = ep,
+                            Local = IsServer ? ServerStartSequence : ClientStartSequence,
+                            Remote = IsServer ? ClientStartSequence : ServerStartSequence
+                        };
+                        while (!_sequences.ContainsKey(ep.ToString()))
+                            Thread.Sleep(10);
+                        Debug("NEW SEQUENCE: {0}", _sequences[ep.ToString()]);                        
+                    }
                 }
             }
-            return rv;
+            return _sequences[ep.ToString()];
         }
 
         private void RetransmitPacket(RUDPPacket p)
@@ -251,9 +253,7 @@ namespace SharpRUDP
         private void SendPacket(RUDPPacket p)
         {
             DateTime dtNow = DateTime.Now;
-
-            InitSequence(p.Dst);
-            RUDPConnectionData sq = _sequences[p.Dst.ToString()];
+            RUDPConnectionData sq = GetSequence(p.Dst);
 
             if (!p.Retransmit)
             {

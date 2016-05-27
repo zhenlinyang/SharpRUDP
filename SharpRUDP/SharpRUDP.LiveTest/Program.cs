@@ -1,5 +1,6 @@
 ﻿using SharpRUDP.Test;
 using System;
+using System.Diagnostics;
 using System.Threading;
 
 namespace SharpRUDP.LiveTest
@@ -12,22 +13,24 @@ namespace SharpRUDP.LiveTest
             Thread.Sleep(1000);
         }
 
+        static void RunAllTests()
+        {
+            foreach (NUnitTestClass test in ControllingTestOrder.CLITestSource)
+            {
+                Stopwatch sw = Stopwatch.StartNew();
+                sw.Start();
+                Console.WriteLine("=================================== TEST START: {0} - {1}", test.TestName, DateTime.Now);
+                test.Run();
+                sw.Stop();
+                Console.WriteLine("=================================== TEST END: {0} - {1}", test.TestName, sw.Elapsed);
+            }
+        }
+
         static void Main(string[] args)
         {
-            //new ConnectionTest() { TestName = "Connect & Disconnect" }.Run(); Wait();
-            //new PacketTest(100, 8, 1) { TestName = "8 bytes" }.Run(); Wait();
-            //new PacketTest(100, 32, 1) { TestName = "32 bytes" }.Run(); Wait();
-            //new PacketTest(100, 64, 1) { TestName = "64 bytes" }.Run(); Wait();
-            //new PacketTest(100, 128, 1) { TestName = "128 bytes" }.Run(); Wait();
-            //new PacketTest(100, 256, 1) { TestName = "256 bytes" }.Run(); Wait();
-            //new PacketTest(100, 1) { TestName = "1 Kbytes" }.Run(); Wait();
-            //new PacketTest(100, 2) { TestName = "2 Kbytes" }.Run(); Wait();
-            //new PacketTest(100, 4) { TestName = "4 Kbytes" }.Run(); Wait();
-            //new PacketTest(100, 8) { TestName = "8 Kbytes" }.Run(); Wait();
-            //new PacketTest(100, 16) { TestName = "16 Kbytes" }.Run(); Wait();
-            //new PacketTest(100, 32) { TestName = "32 Kbytes" }.Run(); Wait();
-            //new PacketTest(100, 64) { TestName = "64 Kbytes" }.Run(); Wait();
-            new ServerDisconnectionTest() { TestName = "Disconnection test" }.Run(); Wait();
+            RunAllTests();
+            //new ServerDisconnectionTest() { TestName = "Disconnection test" }.Run(); Wait();
+            Console.WriteLine("Finished");
             Console.ReadLine();
         }
     }

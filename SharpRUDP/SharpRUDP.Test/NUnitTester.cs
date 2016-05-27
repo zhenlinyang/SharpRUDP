@@ -52,5 +52,15 @@ namespace SharpRUDP.Test
                 }
             }
         }
+
+        public static IEnumerable<NUnitTestClass> CLITestSource
+        {
+            get
+            {
+                foreach (NUnitTestClass c in testOrder)
+                    yield return c;
+            }
+        }
+
     }
 }
