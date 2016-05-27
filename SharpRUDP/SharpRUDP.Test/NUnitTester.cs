@@ -5,11 +5,6 @@ using System.Linq;
 
 namespace SharpRUDP.Test
 {
-    public class TestStructure
-    {
-        public Action Test;
-    }
-
     [TestFixture]
     public class ControllingTestOrder
     {
@@ -30,9 +25,9 @@ namespace SharpRUDP.Test
         };
 
         [TestCaseSource(sourceName: "TestSource")]
-        public void MyTest(TestStructure test)
+        public void MyTest(NUnitTestClass test)
         {
-            test.Test();
+            test.Run();
         }
 
         // http://codereview.stackexchange.com/questions/90537/converting-to-base-26-in-one-based-mode
@@ -51,7 +46,7 @@ namespace SharpRUDP.Test
                 int order = 1;
                 foreach (NUnitTestClass c in testOrder)
                 {
-                    TestCaseData tc = new TestCaseData(new TestStructure { Test = c.Run }).SetName(ToBase26(order).ToUpperInvariant() + ": " + ((NUnitTestClass)c).TestName);
+                    TestCaseData tc = new TestCaseData(c).SetName(ToBase26(order).ToUpperInvariant() + ": " + c.TestName);
                     order++;
                     yield return tc;
                 }
