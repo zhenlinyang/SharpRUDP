@@ -1,17 +1,27 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System;
-using System.Linq;
+﻿using System;
 using System.Threading;
+using NUnit.Framework;
+using System.Linq;
 
 namespace SharpRUDP.Test
 {
-    [TestClass]
-    public class MultiPacketSmallTest
-    {
-        [TestMethod, Timeout(30000)]
-        public void MultiPacketSmall()
+    public class PacketTest : NUnitTestClass
+    {        
+        int _packetMax;
+        int _packetSize;
+        int _multiplier;
+        bool _delay = false;
+
+        public PacketTest(int max, int size, int multiplier = 1024, bool delay = false)
         {
-            int maxPackets = 100;
+            _packetMax = max;
+            _packetSize = size;
+            _multiplier = multiplier;
+            _delay = delay;
+        }
+
+        public override void Run()
+        {
             bool finished = false;
 
             RUDPConnection s = new RUDPConnection();
@@ -22,7 +32,7 @@ namespace SharpRUDP.Test
                 Thread.Sleep(10);
             Assert.AreEqual(ConnectionState.OPEN, c.State);
 
-            byte[] buf = new byte[1 * 1024];
+            byte[] buf = new byte[_packetSize * _multiplier];
             Random r = new Random(DateTime.Now.Second);
             r.NextBytes(buf);
 
@@ -31,22 +41,25 @@ namespace SharpRUDP.Test
             {
                 Assert.IsTrue(p.Data.SequenceEqual(buf));
                 counter++;
-                if (counter >= maxPackets)
+                if (counter >= _packetMax)
                     finished = true;
             };
 
-            for (int i = 0; i < maxPackets; i++)
+            if (_delay)
             {
-                Thread.Sleep(1 * r.Next(0, 10));
-                c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
-            }
+                for (int i = 0; i < _packetMax; i++)
+                {
+                    Thread.Sleep(1 * r.Next(0, 10));
+                    c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
+                }
 
-            while (!finished)
-                Thread.Sleep(10);
+                while (!finished)
+                    Thread.Sleep(10);
+            }
 
             counter = 0;
             finished = false;
-            for (int i = 0; i < maxPackets; i++)
+            for (int i = 0; i < _packetMax; i++)
                 c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
 
             while (!finished)
@@ -58,6 +71,7 @@ namespace SharpRUDP.Test
                 Thread.Sleep(10);
             Assert.AreEqual(ConnectionState.CLOSED, s.State);
             Assert.AreEqual(ConnectionState.CLOSED, c.State);
+
         }
     }
 }

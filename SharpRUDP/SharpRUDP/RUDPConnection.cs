@@ -337,7 +337,7 @@ namespace SharpRUDP
                     else
                     {
                         // Multipacket!
-                        List<RUDPPacket> multiPackets = PacketsToRecv.Where(x => x.Id == p.Id).ToList();
+                        List<RUDPPacket> multiPackets = PacketsToRecv.Where(x => x.Id == p.Id && x.Type == RUDPPacketType.DAT).ToList();
                         if (multiPackets.Count == p.Qty)
                         {
                             Debug("MULTIPACKET {0}", p.Id);
