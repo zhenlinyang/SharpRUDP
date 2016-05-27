@@ -2,7 +2,7 @@
 
 namespace SharpRUDP
 {
-    public class RUDPInternalPacket
+    public class RUDPInternalPackets
     {
         public class ACKPacket
         {

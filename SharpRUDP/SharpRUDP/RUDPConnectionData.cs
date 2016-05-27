@@ -11,10 +11,12 @@ namespace SharpRUDP
         public int PacketId { get; set; }
         public List<RUDPPacket> ReceivedPackets { get; set; }
         public List<RUDPPacket> Pending { get; set; }
+        public ConnectionState State { get; set; }
 
         public RUDPConnectionData()
         {
             PacketId = 0;
+			State = ConnectionState.OPEN;
             ReceivedPackets = new List<RUDPPacket>();
             Pending = new List<RUDPPacket>();
         }
