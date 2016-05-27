@@ -93,13 +93,13 @@ namespace SharpRUDP
         {
             _thRecv = new Thread(() =>
             {
-                while(_isAlive)
+                while (_isAlive)
                 {
                     ProcessRecvQueue();
                     Thread.Sleep(10);
                 }
             });
-            if(start)
+            if (start)
                 _thRecv.Start();
         }
 
@@ -114,6 +114,7 @@ namespace SharpRUDP
                 while (_thRecv.IsAlive)
                     Thread.Sleep(10);
             State = ConnectionState.CLOSED;
+            OnClientDisconnect?.Invoke(RemoteEndPoint);
         }
 
         public override void PacketReceive(IPEndPoint ep, byte[] data, int length)
@@ -235,7 +236,7 @@ namespace SharpRUDP
         private bool InitSequence(IPEndPoint ep)
         {
             bool rv = false;
-            lock(_sequences)
+            lock (_sequences)
             {
                 if (!_sequences.ContainsKey(ep.ToString()))
                 {
@@ -253,7 +254,7 @@ namespace SharpRUDP
             }
             return rv;
         }
-        
+
         private void RetransmitPacket(RUDPPacket p)
         {
             p.Retransmit = true;
@@ -280,7 +281,7 @@ namespace SharpRUDP
             else
                 Debug("RETRANSMIT -> {0}: {1}", p.Dst, p);
 
-            lock(sq.Pending)
+            lock (sq.Pending)
             {
                 sq.Pending.RemoveAll(x => x.Dst.ToString() == p.Dst.ToString() && x.Seq == p.Seq);
                 sq.Pending.Add(p);
@@ -291,7 +292,7 @@ namespace SharpRUDP
 
         public void ProcessRecvQueue()
         {
-            foreach(var cdata in _sequences)
+            foreach (var cdata in _sequences)
             {
                 RUDPConnectionData sq = cdata.Value;
 
@@ -300,7 +301,7 @@ namespace SharpRUDP
                     PacketsToRecv.AddRange(sq.ReceivedPackets.OrderBy(x => x.Seq));
                 PacketsToRecv = PacketsToRecv.GroupBy(x => x.Seq).Select(g => g.First()).ToList();
 
-                foreach(RUDPPacket p in PacketsToRecv)
+                foreach (RUDPPacket p in PacketsToRecv)
                 {
                     lock (sq.ReceivedPackets)
                         sq.ReceivedPackets.Remove(p);
@@ -318,7 +319,7 @@ namespace SharpRUDP
                     {
                         sq.ReceivedPackets.Add(p);
                         break;
-                    }                        
+                    }
 
                     Debug("RECV <- {0}: {1}", p.Src, p);
 
@@ -342,13 +343,13 @@ namespace SharpRUDP
                             continue;
                         }
 
-                        if(p.Type == RUDPPacketType.RST)
+                        if (p.Type == RUDPPacketType.RST)
                         {
                             sq.Remote = IsServer ? ClientStartSequence : ServerStartSequence;
                             continue;
                         }
 
-                        if(p.Type == RUDPPacketType.DAT)
+                        if (p.Type == RUDPPacketType.DAT)
                             OnPacketReceived?.Invoke(p);
                     }
                     else
@@ -406,6 +407,6 @@ namespace SharpRUDP
                     }
                 }
             }
-        }        
+        }
     }
 }

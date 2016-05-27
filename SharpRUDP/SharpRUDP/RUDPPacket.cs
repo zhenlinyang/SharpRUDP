@@ -24,6 +24,8 @@ namespace SharpRUDP
         [ScriptIgnore]
         public bool Retransmit { get; set; }
         [ScriptIgnore]
+        public bool Acknowledged { get; set; }
+        [ScriptIgnore]
         public bool Processed { get; set; }
 
         public int Seq { get; set; }
@@ -32,6 +34,7 @@ namespace SharpRUDP
         public RUDPPacketType Type { get; set; }
         public RUDPPacketFlags Flags { get; set; }
         public byte[] Data { get; set; }
+        public int[] intData { get; set; }
 
         public static RUDPPacket Deserialize(byte[] header, byte[] data)
         {

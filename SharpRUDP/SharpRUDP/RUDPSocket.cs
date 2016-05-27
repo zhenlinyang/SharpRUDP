@@ -33,7 +33,7 @@ namespace SharpRUDP
         {
             bool connect = false;
             IPAddress ipAddress;
-            if(IPAddress.TryParse(address, out ipAddress))
+            if (IPAddress.TryParse(address, out ipAddress))
             {
                 Console.WriteLine("Connecting to {0}", ipAddress);
                 RemoteEndPoint = new IPEndPoint(ipAddress, port);
@@ -42,7 +42,7 @@ namespace SharpRUDP
                 connect = true;
             }
             else
-                foreach(IPAddress ip in Dns.GetHostEntry(address).AddressList)
+                foreach (IPAddress ip in Dns.GetHostEntry(address).AddressList)
                 {
                     try
                     {
@@ -63,18 +63,25 @@ namespace SharpRUDP
         internal void Send(IPEndPoint endPoint, byte[] data)
         {
             PacketSending(endPoint, data, data.Length);
-            _socket.BeginSendTo(data, 0, data.Length, SocketFlags.None, endPoint, (ar) =>
+            try
             {
-                try
+                _socket.BeginSendTo(data, 0, data.Length, SocketFlags.None, endPoint, (ar) =>
                 {
-                    StateObject so = (StateObject)ar.AsyncState;
-                    int bytes = _socket.EndSend(ar);
-                }
-                catch (Exception ex)
-                {
-                    SocketError(ex);
-                }
-            }, state);
+                    try
+                    {
+                        StateObject so = (StateObject)ar.AsyncState;
+                        int bytes = _socket.EndSend(ar);
+                    }
+                    catch (Exception ex)
+                    {
+                        SocketError(ex);
+                    }
+                }, state);
+            }
+            catch (Exception ex)
+            {
+                SocketError(ex);
+            }
         }
 
         private void Receive()

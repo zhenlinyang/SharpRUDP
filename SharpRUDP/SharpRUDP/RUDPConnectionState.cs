@@ -6,7 +6,6 @@
         OPENING,
         OPEN,
         LISTEN,
-        BROKEN,
         CLOSING
     }
 }
