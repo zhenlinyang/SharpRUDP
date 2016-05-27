@@ -49,6 +49,9 @@ namespace SharpRUDP
         public override string ToString()
         {
             string js = _js.Serialize(this);
+
+            js = js + string.Format(" RT:{0} ACK:{1} PROC:{2}", Retransmit ? 1 : 0, Acknowledged ? 1 : 0, Processed ? 1 : 0);
+
             if (Data != null && Data.Length > 30)
                 return dataRegex.Replace(js, "\"Data\":" + (Data == null ? 0 : Data.Length) + "b");
             else

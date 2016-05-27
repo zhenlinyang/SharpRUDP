@@ -33,7 +33,7 @@ namespace SharpRUDP
         public event dlgEventUserData OnPacketReceived;
 
         private Dictionary<string, IPEndPoint> _clients { get; set; }
-        private Dictionary<string, RUDPConnectionData> _sequences { get; set; }
+        public Dictionary<string, RUDPConnectionData> _sequences { get; set; }
         private bool _isAlive = false;
         private int _maxMTU { get { return (int)(MTU * 0.80); } }
         private object _debugMutex = new object();
@@ -263,18 +263,20 @@ namespace SharpRUDP
                 lock (sq.Pending)
                     foreach (RUDPPacket unconfirmed in sq.Pending.Where(x => (dtNow - x.Sent).Seconds >= 1))
                         RetransmitPacket(unconfirmed);
-                Debug("SEND -> {0}: {1}", p.Dst, p);
-            }
-            else
-                Debug("RETRANSMIT -> {0}: {1}", p.Dst, p);
-
-            lock (sq.Pending)
-            {
-                sq.Pending.RemoveAll(x => x.Dst.ToString() == p.Dst.ToString() && x.Seq == p.Seq);
                 sq.Pending.Add(p);
+                Debug("SEND -> {0}: {1}", p.Dst, p);
+                lock (sq.Pending)
+                {
+                    sq.Pending.RemoveAll(x => x.Dst.ToString() == p.Dst.ToString() && x.Seq == p.Seq);
+                    sq.Pending.Add(p);
+                }
             }
-
             Send(p.Dst, p.ToByteArray(PacketHeader));
+        }
+
+        public void SendKeepAlive(IPEndPoint ep)
+        {
+            Send(ep, RUDPPacketType.NUL);
         }
 
         public void ProcessRecvQueue()

@@ -3,7 +3,7 @@ using NUnit.Framework;
 
 namespace SharpRUDP.Test
 {
-    public class Connectivity : NUnitTestClass
+    public class ConnectionTest : NUnitTestClass
     {
         public override void Run()
         {
