@@ -261,14 +261,12 @@ namespace SharpRUDP
                     foreach (RUDPPacket unconfirmed in sq.Pending.Where(x => (dtNow - x.Sent).Seconds >= 1))
                         RetransmitPacket(unconfirmed);
                 Debug("SEND -> {0}: {1}", p.Dst, p);
+                sq.Pending.Add(p);
             }
             else
-                Debug("RETRANSMIT -> {0}: {1}", p.Dst, p);
-
-            lock(sq.Pending)
             {
-                sq.Pending.RemoveAll(x => x.Dst.ToString() == p.Dst.ToString() && x.Seq == p.Seq);
-                sq.Pending.Add(p);
+                p.Sent = dtNow;
+                Debug("RETRANSMIT -> {0}: {1}", p.Dst, p);
             }
 
             Send(p.Dst, p.ToByteArray(PacketHeader));
