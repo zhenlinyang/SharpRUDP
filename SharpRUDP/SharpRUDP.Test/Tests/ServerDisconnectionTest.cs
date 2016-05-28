@@ -34,18 +34,38 @@ namespace SharpRUDP.Test
             {
                 Assert.IsTrue(p.Data.SequenceEqual(buf));
                 counter++;
-                if (counter >= 5)
+                if (counter >= 4)
+                {
                     if (s.State == ConnectionState.LISTEN)
+                    {
                         s.Disconnect();
-                if(counter >= _packetMax)
-                    finished = true;
+                        finished = true;
+                        new Thread(() =>
+                        {
+                            while (c.State != ConnectionState.CLOSED)
+                                Thread.Sleep(10);
+                            finished = true;
+                        }).Start();
+                    }
+                }
             };
 
-            for (int i = 0; i < _packetMax; i++)
+            for (int i = 0; i < _packetMax / 2; i++)
                 c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
 
             // TODO: Detect server disconnection through keepalive packet
-            // while (!finished) Thread.Sleep(10);
+            while (!finished)
+                Thread.Sleep(10);
+
+            Console.WriteLine("Waiting to send more packets...");
+            Thread.Sleep(2000);
+
+            finished = false;
+            for (int i = 0; i < _packetMax / 2; i++)
+                c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
+
+            while (!finished)
+                Thread.Sleep(10);
 
             s.Disconnect();
             c.Disconnect();

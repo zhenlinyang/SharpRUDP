@@ -38,6 +38,7 @@ namespace SharpRUDP
         private int _maxMTU { get { return (int)(MTU * 0.80); } }
         private object _debugMutex = new object();
         private Thread _thRecv;
+        private Thread _thKeepAlive;
 
         public RUDPConnection()
         {
@@ -98,23 +99,58 @@ namespace SharpRUDP
                     Thread.Sleep(10);
                 }
             });
+            _thKeepAlive = new Thread(() =>
+            {
+                while(_isAlive)
+                {
+                    lock(_sequences)
+                        foreach (var kvp in _sequences)
+                            if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > 5)
+                            {
+                                Debug("TIMEOUT");
+                                Disconnect();
+                                break;
+                            }
+                            else if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > 1)
+                            {
+                                SendKeepAlive(kvp.Value.EndPoint);
+                                foreach (RUDPPacket p in kvp.Value.Pending)
+                                    RetransmitPacket(p);
+                            }
+                    Thread.Sleep(1000);
+                }                
+            });
             if (start)
+            {
                 _thRecv.Start();
+                _thKeepAlive.Start();
+            }
         }
 
         public void Disconnect()
         {
-            State = ConnectionState.CLOSING;
-            _isAlive = false;
-            _socket.Shutdown(SocketShutdown.Both);
-            if (IsServer)
-                _socket.Close();
-            if (_thRecv != null)
-                while (_thRecv.IsAlive)
-                    Thread.Sleep(10);
-            State = ConnectionState.CLOSED;
-            if(!IsServer)
-                OnDisconnected?.Invoke(RemoteEndPoint);
+            new Thread(() =>
+            {
+                Thread.Sleep(1000);
+                State = ConnectionState.CLOSING;
+                _isAlive = false;
+                try
+                {
+                    _socket.Shutdown(SocketShutdown.Both);
+                }
+                catch (Exception) { }
+                if (IsServer)
+                    _socket.Close();
+                if (_thRecv != null)
+                    while (_thRecv.IsAlive)
+                        Thread.Sleep(10);
+                if (_thKeepAlive != null)
+                    while (_thKeepAlive.IsAlive)
+                        Thread.Sleep(10);
+                State = ConnectionState.CLOSED;
+                if (!IsServer)
+                    OnDisconnected?.Invoke(RemoteEndPoint);
+            }).Start();
         }
 
         public override void PacketReceive(IPEndPoint ep, byte[] data, int length)
@@ -271,12 +307,14 @@ namespace SharpRUDP
                     sq.Pending.Add(p);
                 }
             }
+            else
+                Debug("RETRANSMIT -> {0}: {1}", p.Dst, p);
             Send(p.Dst, p.ToByteArray(PacketHeader));
         }
 
         public void SendKeepAlive(IPEndPoint ep)
         {
-            Send(ep, RUDPPacketType.NUL);
+            Send(ep, new RUDPInternalPackets.ACKPacket() { header = InternalPacketHeader, sequence = 0 }.Serialize());
         }
 
         public void ProcessRecvQueue()
