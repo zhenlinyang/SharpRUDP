@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace SharpRUDP
 {
@@ -46,6 +47,7 @@ namespace SharpRUDP
         private SpinWait _sw = new SpinWait();
         private Thread _thRecv;
         private Thread _thKeepAlive;
+        private AutoResetEvent SignalPacketRecv = new AutoResetEvent(false);
         #endregion
 
         #region Initialization
@@ -67,7 +69,7 @@ namespace SharpRUDP
 
         private void Debug(object obj, params object[] args)
         {
-            return;
+            //return;
             lock (_debugMutex)
             {
                 Console.ForegroundColor = IsServer ? ConsoleColor.Cyan : ConsoleColor.Green;
@@ -113,36 +115,44 @@ namespace SharpRUDP
                 while (_isAlive)
                 {
                     ProcessRecvQueue();
-                    Thread.Sleep(10);
+                    SignalPacketRecv.WaitOne(10);
                 }
             });
             _thKeepAlive = new Thread(() =>
             {
                 while (_isAlive)
                 {
-                    lock (Connections)
-                    {
-                        foreach (var kvp in Connections)
+                    List<string> offlineEndpoints = new List<string>();
+                    List<RUDPConnectionData> cons = new List<RUDPConnectionData>();
+                    lock(Connections)
+                        Parallel.ForEach(Connections, (kvp) =>
                         {
+                            cons.Add(kvp.Value);
+                        });
+                    Parallel.ForEach(cons, (cn) =>
+                    {
+                        if ((DateTime.Now - cn.LastPacketDate).Seconds > ConnectionTimeout)
+                        {
+                            Debug("TIMEOUT");
                             if (!IsServer)
-                            {
-                                if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > ConnectionTimeout)
-                                {
-                                    Debug("TIMEOUT");
-                                    if (!IsServer)
-                                        Disconnect();
-                                    break;
-                                }
-                                else if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > KeepAliveInterval)
-                                {
-                                    SendKeepAlive(kvp.Value.EndPoint);
-                                    lock(kvp.Value.Pending)
-                                        foreach (RUDPPacket p in kvp.Value.Pending)
-                                            RetransmitPacket(p);
-                                }
-                            }
+                                Disconnect();
+                            else
+                                offlineEndpoints.Add(cn.EndPoint.ToString());
                         }
-                    }
+                        else if ((DateTime.Now - cn.LastPacketDate).Seconds > KeepAliveInterval)
+                        {
+                            SendKeepAlive(cn.EndPoint);
+                            lock (cn.Pending)
+                                foreach (RUDPPacket p in cn.Pending)
+                                    RetransmitPacket(p);
+                        }
+                    });
+                    lock (Connections)
+                        foreach (string ep in offlineEndpoints)
+                        {
+                            OnClientDisconnect?.Invoke(Connections[ep].EndPoint);
+                            Connections.Remove(ep);
+                        }
                     Thread.Sleep(KeepAliveInterval * 1000);
                 }
             });
@@ -164,7 +174,6 @@ namespace SharpRUDP
             Debug("DISCONNECT");
             new Thread(() =>
             {
-                Thread.Sleep(1000);
                 try
                 {
                     _socket.Shutdown(SocketShutdown.Both);
@@ -204,7 +213,7 @@ namespace SharpRUDP
                             Remote = IsServer ? ClientStartSequence : ServerStartSequence
                         };
                         while (!Connections.ContainsKey(ep.ToString()))
-                            Thread.Sleep(10);
+                            Thread.Sleep(1);
                         Debug("NEW CONNECTION: {0}", Connections[ep.ToString()]);
                     }
                 }
@@ -331,9 +340,10 @@ namespace SharpRUDP
                 RUDPConnectionData cn = GetConnection(p.Src);
                 cn.LastPacketDate = dtNow;
                 Send(p.Src, new RUDPInternalPackets.ACKPacket() { header = InternalPacketHeader, sequence = p.Seq }.Serialize());
-                Debug("ACK SEND -> {0}: {1}", p.Src, p.Seq);
+                //Debug("ACK SEND -> {0}: {1}", p.Src, p.Seq);
                 lock (cn.ReceivedPackets)
                     cn.ReceivedPackets.Add(p);
+                SignalPacketRecv.Set();
             }
             else if (length > InternalPacketHeader.Length && data.Take(InternalPacketHeader.Length).SequenceEqual(InternalPacketHeader))
             {
@@ -341,7 +351,7 @@ namespace SharpRUDP
                 RUDPConnectionData cn = GetConnection(src);
                 cn.LastPacketDate = dtNow;
                 RUDPInternalPackets.ACKPacket ack = RUDPInternalPackets.ACKPacket.Deserialize(data);
-                Debug("ACK RECV <- {0}: {1}", src, ack.sequence);
+                //Debug("ACK RECV <- {0}: {1}", src, ack.sequence);
                 lock (cn.Pending)
                     cn.Pending.RemoveAll(x => x.Seq == ack.sequence);
             }

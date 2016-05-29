@@ -1,26 +1,19 @@
-﻿using System;
-using System.Threading;
-using NUnit.Framework;
+﻿using NUnit.Framework;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Text;
+using System.Threading;
 
 namespace SharpRUDP.Test
 {
-    public class PacketTest : NUnitTestClass
-    {        
-        int _packetMax;
-        int _packetSize;
-        int _multiplier;
-        bool _delay = false;
+    public class ClientDisconnectionTest : NUnitTestClass
+    {
+        int _packetMax = 10;
+        int _packetSize = 10;
+        int _multiplier = 1;
         AutoResetEvent wait = new AutoResetEvent(false);
-
-        public PacketTest(int max, int size, int multiplier = 1024, bool delay = false)
-        {
-            _packetMax = max;
-            _packetSize = size;
-            _multiplier = multiplier;
-            _delay = delay;
-        }
 
         public override void Run()
         {
@@ -43,8 +36,9 @@ namespace SharpRUDP.Test
             {
                 Assert.IsTrue(p.Data.SequenceEqual(buf));
                 counter++;
-                if (counter >= _packetMax)
-                    finished = true;
+                if (counter >= 4)
+                    if (c.State == ConnectionState.OPEN)
+                        c.Disconnect();
             };
             c.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("CLIENT ERROR {0}: {1}", ep, ex.Message); };
             s.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("SERVER ERROR {0}: {1}", ep, ex.Message); };
@@ -52,26 +46,17 @@ namespace SharpRUDP.Test
             {
                 wait.Set();
             };
-
-            if (_delay)
+            s.OnClientDisconnect += (IPEndPoint ep) =>
             {
-                for (int i = 0; i < _packetMax; i++)
-                {
-                    Thread.Sleep(1 * r.Next(0, 10));
-                    c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
-                    wait.WaitOne();
-                }
+                Console.WriteLine("{0} disconnected.", ep);
+                finished = true;
+            };
 
-                while (!finished)
-                    Thread.Sleep(10);
-            }
-
-            counter = 0;
-            finished = false;
             for (int i = 0; i < _packetMax; i++)
             {
+                Thread.Sleep(100);
                 c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
-                wait.WaitOne();
+                wait.WaitOne(1000);
             }
 
             while (!finished)
@@ -84,7 +69,6 @@ namespace SharpRUDP.Test
 
             Assert.AreEqual(ConnectionState.CLOSED, s.State);
             Assert.AreEqual(ConnectionState.CLOSED, c.State);
-
         }
     }
 }
