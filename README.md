@@ -16,15 +16,15 @@ I also tried to spin off my own RUDP implementation following the RFC and failin
 ## Features
 
 - Thread-safe.
+- Keeps the connection alive using tiny keepalive packets.
 - Retransmission of unacknowledged packets in the next send/reset iteration.
 - Packet data comes in JSON format (for now), so the protocol can be ported to other languages (Node.js anyone?) without much issue.
 - Pure concise, clean C# code. Avoids C++ wrappers and obscure BS. Most of the code is in **RUDPConnection.cs** and it's < 500 lines long!.
-- Long data can be sent and will be retrieved sequentially, while keeping packet size to the maximum standard MTU value for IPv4 (max. is 300, will try to stay below 500 (+200 for packet data just in case)).
+- Long data can be sent and will be retrieved sequentially, while keeping packet size to a safe MTU value (8Kb, since Android has 16Kb and Windows has 64Kb, safe spot is 8Kb). However, it will reserve 20% of that size for packet data just in case.
 
 ## Upcoming features
 
 - Different serialization options.
-- Keep the connection alive using tiny keepalive packets.
 
 ## About & License
 
