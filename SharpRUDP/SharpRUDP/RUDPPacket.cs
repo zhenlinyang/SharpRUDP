@@ -1,18 +1,14 @@
-﻿using System;
-using System.Linq;
+﻿using SharpRUDP.Serializers;
+using System;
 using System.Net;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 
 namespace SharpRUDP
 {
     public class RUDPPacket
     {
-        private static string dataRegexStr = @"""Data"":\[[0-9,]*\]";
-        private static Regex dataRegex = new Regex(dataRegexStr, RegexOptions.None);
-        private static JavaScriptSerializer _js = new JavaScriptSerializer();
-
+        [ScriptIgnore]
+        public RUDPSerializer Serializer { get; set; }
         [ScriptIgnore]
         public IPEndPoint Src { get; set; }
         [ScriptIgnore]
@@ -36,26 +32,14 @@ namespace SharpRUDP
         public byte[] Data { get; set; }
         public int[] intData { get; set; }
 
-        public static RUDPPacket Deserialize(byte[] header, byte[] data)
+        public static RUDPPacket Deserialize(RUDPSerializer serializer, byte[] header, byte[] data)
         {
-            return _js.Deserialize<RUDPPacket>(Encoding.ASCII.GetString(data.Skip(header.Length).ToArray()));
-        }
-
-        public byte[] ToByteArray(byte[] header)
-        {
-            return header.Concat(Encoding.ASCII.GetBytes(_js.Serialize(this))).ToArray();
+            return serializer.Deserialize(header, data);
         }
 
         public override string ToString()
         {
-            string js = _js.Serialize(this);
-
-            js = js + string.Format(" RT:{0} ACK:{1} PROC:{2}", Retransmit ? 1 : 0, Acknowledged ? 1 : 0, Processed ? 1 : 0);
-
-            if (Data != null && Data.Length > 30)
-                return dataRegex.Replace(js, "\"Data\":" + (Data == null ? 0 : Data.Length) + "b");
-            else
-                return js;
+            return Serializer.AsString(this);
         }
     }
 }

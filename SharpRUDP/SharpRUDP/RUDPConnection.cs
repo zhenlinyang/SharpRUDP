@@ -1,4 +1,5 @@
-﻿using System;
+﻿using SharpRUDP.Serializers;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -27,6 +28,30 @@ namespace SharpRUDP
         public byte[] PacketHeader { get; set; }
         public byte[] InternalPacketHeader { get; set; }
         public Dictionary<string, RUDPConnectionData> Connections { get; set; }
+        public RUDPSerializeMode ProtocolMode
+        {
+            get
+            {
+                if (_serializer.GetType() == typeof(RUDPJSONSerializer))
+                    return RUDPSerializeMode.JSON;
+                if (_serializer.GetType() == typeof(RUDPBinarySerializer))
+                    return RUDPSerializeMode.Binary;
+                ProtocolMode = RUDPSerializeMode.JSON;
+                return RUDPSerializeMode.JSON;
+            }
+            set
+            {
+                switch(value)
+                {
+                    case RUDPSerializeMode.JSON:
+                        _serializer = new RUDPJSONSerializer();
+                        break;
+                    case RUDPSerializeMode.Binary:
+                        _serializer = new RUDPBinarySerializer();
+                        break;
+                }
+            }
+        }
 
         public delegate void dlgEventVoid();
         public delegate void dlgEventConnection(IPEndPoint ep);
@@ -47,6 +72,7 @@ namespace SharpRUDP
         private SpinWait _sw = new SpinWait();
         private Thread _thRecv;
         private Thread _thKeepAlive;
+        private RUDPSerializer _serializer;
         private AutoResetEvent SignalPacketRecv = new AutoResetEvent(false);
         #endregion
 
@@ -65,6 +91,7 @@ namespace SharpRUDP
             State = ConnectionState.CLOSED;
             PacketHeader = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
             InternalPacketHeader = new byte[] { 0xFA, 0xCE, 0xFE, 0xED };
+            ProtocolMode = RUDPSerializeMode.Binary;
         }
 
         private void Debug(object obj, params object[] args)
@@ -161,7 +188,7 @@ namespace SharpRUDP
                 _thRecv.Start();
                 _thKeepAlive.Start();
             }
-        }
+        }        
         #endregion
 
         #region Connections
@@ -237,6 +264,7 @@ namespace SharpRUDP
             {
                 packet = new RUDPPacket()
                 {
+                    Serializer = _serializer,
                     Dst = destination,
                     Id = cn.PacketId,
                     Type = type,
@@ -262,6 +290,7 @@ namespace SharpRUDP
                     byte[] buf = data.Skip(i).Take(max).ToArray();
                     PacketsToSend.Add(new RUDPPacket()
                     {
+                        Serializer = _serializer,
                         Dst = destination,
                         Id = cn.PacketId,
                         Type = type,
@@ -289,6 +318,7 @@ namespace SharpRUDP
             {
                 SendPacket(new RUDPPacket()
                 {
+                    Serializer = _serializer,
                     Dst = destination,
                     Type = RUDPPacketType.RST
                 });
@@ -318,7 +348,7 @@ namespace SharpRUDP
                 Debug("SEND -> {0}: {1}", p.Dst, p);
             }
             else { Debug("RETRANSMIT -> {0}: {1}", p.Dst, p); }
-            Send(p.Dst, p.ToByteArray(PacketHeader));
+            Send(p.Dst, (byte[])_serializer.Serialize(PacketHeader, p));
         }
 
         public void SendKeepAlive(IPEndPoint ep)
@@ -334,7 +364,8 @@ namespace SharpRUDP
             DateTime dtNow = DateTime.Now;
             if (length > PacketHeader.Length && data.Take(PacketHeader.Length).SequenceEqual(PacketHeader))
             {
-                RUDPPacket p = RUDPPacket.Deserialize(PacketHeader, data);
+                RUDPPacket p = RUDPPacket.Deserialize(_serializer, PacketHeader, data);
+                p.Serializer = _serializer;
                 p.Src = IsServer ? ep : RemoteEndPoint;
                 p.Received = DateTime.Now;
                 RUDPConnectionData cn = GetConnection(p.Src);
@@ -456,6 +487,7 @@ namespace SharpRUDP
                             idsToConfirm.Add(p.Id);
                             OnPacketReceived?.Invoke(new RUDPPacket()
                             {
+                                Serializer = _serializer,
                                 Retransmit = p.Retransmit,
                                 Sent = p.Sent,
                                 Data = buf,
