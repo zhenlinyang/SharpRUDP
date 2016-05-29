@@ -10,7 +10,7 @@ namespace SharpRUDP.LiveTest
         static void Wait()
         {
             // Console.ReadLine();
-            Thread.Sleep(1000);
+            Thread.Sleep(5000);
         }
 
         static void RunAllTests()
@@ -19,17 +19,16 @@ namespace SharpRUDP.LiveTest
             {
                 Stopwatch sw = Stopwatch.StartNew();
                 sw.Start();
-                Console.WriteLine("=================================== TEST START: {0} - {1}", test.TestName, DateTime.Now);
+                Console.WriteLine("=================================== TEST START: {0}", test.TestName);
                 test.Run();
                 sw.Stop();
-                Console.WriteLine("=================================== TEST END: {0} - {1}", test.TestName, sw.Elapsed);
+                Console.WriteLine("=================================== TEST FINISH: {0} - {1}", test.TestName, sw.Elapsed);
             }
         }
 
         static void Main(string[] args)
         {
             RunAllTests();
-            //new ServerDisconnectionTest() { TestName = "Disconnection test" }.Run(); Wait();
             Console.WriteLine("Finished");
             Console.ReadLine();
         }
