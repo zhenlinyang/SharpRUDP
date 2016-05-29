@@ -69,6 +69,7 @@ namespace SharpRUDP.Test
             c.Disconnect();
             while (c.State != ConnectionState.CLOSED && s.State != ConnectionState.CLOSED)
                 Thread.Sleep(10);
+
             Assert.AreEqual(ConnectionState.CLOSED, s.State);
             Assert.AreEqual(ConnectionState.CLOSED, c.State);
 

@@ -53,7 +53,6 @@ namespace SharpRUDP.Test
             for (int i = 0; i < _packetMax / 2; i++)
                 c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
 
-            // TODO: Detect server disconnection through keepalive packet
             while (!finished)
                 Thread.Sleep(10);
 

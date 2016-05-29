@@ -28,8 +28,8 @@ namespace SharpRUDP.LiveTest
 
         static void Main(string[] args)
         {
-            //RunAllTests();
-            new ServerDisconnectionTest() { TestName = "Disconnection test" }.Run(); Wait();
+            RunAllTests();
+            //new ServerDisconnectionTest() { TestName = "Disconnection test" }.Run(); Wait();
             Console.WriteLine("Finished");
             Console.ReadLine();
         }

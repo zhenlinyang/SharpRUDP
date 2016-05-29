@@ -15,6 +15,8 @@ namespace SharpRUDP
         public bool IsClient { get { return !IsServer; } }
         public ConnectionState State { get; set; }
         public int RecvFrequencyMs { get; set; }
+        public int KeepAliveInterval { get; set; }
+        public int ConnectionTimeout { get; set; }
         public int PacketIdLimit { get; set; }
         public int SequenceLimit { get; set; }
         public int ClientStartSequence { get; set; }
@@ -26,11 +28,13 @@ namespace SharpRUDP
         public delegate void dlgEventVoid();
         public delegate void dlgEventConnection(IPEndPoint ep);
         public delegate void dlgEventUserData(RUDPPacket p);
+        public delegate void dlgEventError(IPEndPoint ep, Exception ex);
         public event dlgEventConnection OnClientConnect;
         public event dlgEventConnection OnClientDisconnect;
         public event dlgEventConnection OnConnected;
         public event dlgEventConnection OnDisconnected;
         public event dlgEventUserData OnPacketReceived;
+        public event dlgEventError OnSocketError;
 
         private Dictionary<string, IPEndPoint> _clients { get; set; }
         public Dictionary<string, RUDPConnectionData> _sequences { get; set; }
@@ -49,6 +53,8 @@ namespace SharpRUDP
             SequenceLimit = int.MaxValue / 2;
             ClientStartSequence = 100;
             ServerStartSequence = 200;
+            KeepAliveInterval = 1;
+            ConnectionTimeout = 5;
             State = ConnectionState.CLOSED;
             PacketHeader = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
             InternalPacketHeader = new byte[] { 0xFA, 0xCE, 0xFE, 0xED };
@@ -89,6 +95,12 @@ namespace SharpRUDP
             InitThreads(startThreads);
         }
 
+        public override void SocketError(IPEndPoint ep, Exception ex)
+        {
+            base.SocketError(ep, ex);
+            OnSocketError?.Invoke(ep, ex);
+        }
+
         public void InitThreads(bool start)
         {
             _thRecv = new Thread(() =>
@@ -101,24 +113,32 @@ namespace SharpRUDP
             });
             _thKeepAlive = new Thread(() =>
             {
-                while(_isAlive)
+                while (_isAlive)
                 {
-                    lock(_sequences)
+                    lock (_sequences)
+                    {
                         foreach (var kvp in _sequences)
-                            if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > 5)
+                        {
+                            if (!IsServer)
                             {
-                                Debug("TIMEOUT");
-                                Disconnect();
-                                break;
+                                if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > ConnectionTimeout)
+                                {
+                                    Debug("TIMEOUT");
+                                    if (!IsServer)
+                                        Disconnect();
+                                    break;
+                                }
+                                else if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > KeepAliveInterval)
+                                {
+                                    SendKeepAlive(kvp.Value.EndPoint);
+                                    foreach (RUDPPacket p in kvp.Value.Pending)
+                                        RetransmitPacket(p);
+                                }
                             }
-                            else if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > 1)
-                            {
-                                SendKeepAlive(kvp.Value.EndPoint);
-                                foreach (RUDPPacket p in kvp.Value.Pending)
-                                    RetransmitPacket(p);
-                            }
-                    Thread.Sleep(1000);
-                }                
+                        }
+                    }
+                    Thread.Sleep(KeepAliveInterval * 1000);
+                }
             });
             if (start)
             {
@@ -129,11 +149,14 @@ namespace SharpRUDP
 
         public void Disconnect()
         {
+            if (State >= ConnectionState.CLOSING)
+                return;
+            State = ConnectionState.CLOSING;
+            _isAlive = false;
+            Debug("DISCONNECT");
             new Thread(() =>
             {
                 Thread.Sleep(1000);
-                State = ConnectionState.CLOSING;
-                _isAlive = false;
                 try
                 {
                     _socket.Shutdown(SocketShutdown.Both);

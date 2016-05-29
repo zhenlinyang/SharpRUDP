@@ -19,6 +19,7 @@ namespace SharpRUDP
         {
             PacketId = 0;
 			State = ConnectionState.OPEN;
+            LastPacketDate = DateTime.Now;
             ReceivedPackets = new List<RUDPPacket>();
             Pending = new List<RUDPPacket>();
         }

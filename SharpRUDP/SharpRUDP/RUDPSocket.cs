@@ -74,13 +74,13 @@ namespace SharpRUDP
                     }
                     catch (Exception ex)
                     {
-                        SocketError(ex);
+                        SocketError(endPoint, ex);
                     }
                 }, state);
             }
             catch (Exception ex)
             {
-                SocketError(ex);
+                SocketError(endPoint, ex);
             }
         }
 
@@ -99,12 +99,12 @@ namespace SharpRUDP
                 }
                 catch (Exception ex)
                 {
-                    SocketError(ex);
+                    SocketError((IPEndPoint)ep, ex);
                 }
             }, state);
         }
 
-        public virtual void SocketError(Exception ex) { }
+        public virtual void SocketError(IPEndPoint ep, Exception ex) { }
 
         public virtual int PacketSending(IPEndPoint endPoint, byte[] data, int length)
         {
