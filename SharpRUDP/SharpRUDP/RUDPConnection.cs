@@ -47,7 +47,7 @@ namespace SharpRUDP
         public RUDPConnection()
         {
             IsServer = false;
-            MTU = 500;
+            MTU = 1024 * 8;
             RecvFrequencyMs = 10;
             PacketIdLimit = int.MaxValue / 2;
             SequenceLimit = int.MaxValue / 2;
@@ -131,8 +131,9 @@ namespace SharpRUDP
                                 else if ((DateTime.Now - kvp.Value.LastPacketDate).Seconds > KeepAliveInterval)
                                 {
                                     SendKeepAlive(kvp.Value.EndPoint);
-                                    foreach (RUDPPacket p in kvp.Value.Pending)
-                                        RetransmitPacket(p);
+                                    lock(kvp.Value.Pending)
+                                        foreach (RUDPPacket p in kvp.Value.Pending)
+                                            RetransmitPacket(p);
                                 }
                             }
                         }
