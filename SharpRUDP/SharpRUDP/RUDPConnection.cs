@@ -257,6 +257,9 @@ namespace SharpRUDP
 
         public int Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT, RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null)
         {
+            if (!IsServer)
+                if (!_isAlive)
+                    return -1;
             RUDPPacket packet = null;
             bool reset = false;
             RUDPConnectionData cn = GetConnection(destination);
@@ -461,9 +464,9 @@ namespace SharpRUDP
                             OnPacketReceived?.Invoke(p);
                         }
 
-                        if(p.Type == RUDPPacketType.ACK)
-                            lock(cn.Pending)
-                                foreach(int packetId in p.intData)
+                        if (p.Type == RUDPPacketType.ACK)
+                            lock (cn.Pending)
+                                foreach (int packetId in p.intData)
                                     OnPacketConfirmed?.Invoke(packetId);
                     }
                     else
@@ -521,6 +524,7 @@ namespace SharpRUDP
                     }
                 }
                 if(idsToConfirm.Count > 0)
+                if (idsToConfirm.Count > 0)
                     Send(cn.EndPoint, RUDPPacketType.ACK, RUDPPacketFlags.NUL, null, idsToConfirm.ToArray());
             }
         }
