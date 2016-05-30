@@ -11,21 +11,19 @@ namespace SharpRUDP
 
             public byte[] Serialize()
             {
-                byte[] rv;
-                using (MemoryStream ms = new MemoryStream())
+                MemoryStream ms = new MemoryStream();
                 using (BinaryWriter bw = new BinaryWriter(ms))
                 {
                     bw.Write(header);
                     bw.Write(sequence);
-                    rv = ms.ToArray();
                 }
-                return rv;
+                return ms.ToArray();
             }
 
             public static ACKPacket Deserialize(byte[] data)
             {
                 ACKPacket rv = new ACKPacket();
-                using (MemoryStream ms = new MemoryStream(data))
+                MemoryStream ms = new MemoryStream(data);
                 using (BinaryReader br = new BinaryReader(ms))
                 {
                     rv.header = br.ReadBytes(4);

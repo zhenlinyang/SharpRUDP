@@ -5,7 +5,7 @@ using System.Text;
 
 namespace SharpRUDP
 {
-    public class RUDPSocket
+    public class RUDPSocket : IDisposable
     {
         internal Socket _socket;
         private const int bufSize = 64 * 1024;
@@ -115,6 +115,17 @@ namespace SharpRUDP
         public virtual void PacketReceive(IPEndPoint ep, byte[] data, int length)
         {
             RUDPLogger.Trace("RECV <- {0}: {1}", ep, Encoding.ASCII.GetString(data, 0, length));
+        }
+
+        protected virtual void Dispose(bool value)
+        {
+            _socket.Dispose();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
     }
 }

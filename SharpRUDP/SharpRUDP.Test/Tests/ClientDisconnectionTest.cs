@@ -13,7 +13,6 @@ namespace SharpRUDP.Test
         int _packetMax = 10;
         int _packetSize = 10;
         int _multiplier = 1;
-        AutoResetEvent wait = new AutoResetEvent(false);
 
         public override void Run()
         {
@@ -42,10 +41,6 @@ namespace SharpRUDP.Test
             };
             c.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("CLIENT ERROR {0}: {1}", ep, ex.Message); };
             s.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("SERVER ERROR {0}: {1}", ep, ex.Message); };
-            c.OnPacketConfirmed += (int packetId) =>
-            {
-                wait.Set();
-            };
             s.OnClientDisconnect += (IPEndPoint ep) =>
             {
                 Console.WriteLine("{0} disconnected.", ep);
@@ -56,7 +51,6 @@ namespace SharpRUDP.Test
             {
                 Thread.Sleep(100);
                 c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
-                wait.WaitOne(1000);
             }
 
             while (!finished)

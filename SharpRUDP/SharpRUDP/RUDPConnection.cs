@@ -392,10 +392,14 @@ namespace SharpRUDP
 
         public void ProcessRecvQueue()
         {
-            foreach (var cdata in Connections)
+            List<RUDPConnectionData> connections = new List<RUDPConnectionData>();
+            lock(Connections)
+                Parallel.ForEach(Connections, (kvp) =>
+                {
+                    connections.Add(kvp.Value);
+                });
+            foreach (RUDPConnectionData cn in connections)
             {
-                RUDPConnectionData cn = cdata.Value;
-
                 List<RUDPPacket> PacketsToRecv = new List<RUDPPacket>();
                 lock (cn.ReceivedPackets)
                     PacketsToRecv.AddRange(cn.ReceivedPackets.OrderBy(x => x.Seq));
@@ -471,17 +475,15 @@ namespace SharpRUDP
                             Debug("MULTIPACKET {0}", p.Id);
 
                             byte[] buf;
-                            using (MemoryStream ms = new MemoryStream())
-                            {
-                                using (BinaryWriter bw = new BinaryWriter(ms))
-                                    foreach (RUDPPacket mp in multiPackets)
-                                    {
-                                        mp.Processed = true;
-                                        bw.Write(mp.Data);
-                                        Debug("RECV MP <- {0}: {1}", p.Src, mp);
-                                    }
-                                buf = ms.ToArray();
-                            }
+                            MemoryStream ms = new MemoryStream();
+                            using (BinaryWriter bw = new BinaryWriter(ms))
+                                foreach (RUDPPacket mp in multiPackets)
+                                {
+                                    mp.Processed = true;
+                                    bw.Write(mp.Data);
+                                    Debug("RECV MP <- {0}: {1}", p.Src, mp);
+                                }
+                            buf = ms.ToArray();
                             Debug("MULTIPACKET ID {0} DATA: {1}", p.Id, Encoding.ASCII.GetString(buf));
 
                             idsToConfirm.Add(p.Id);

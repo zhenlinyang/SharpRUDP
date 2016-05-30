@@ -8,7 +8,7 @@ namespace SharpRUDP.Serializers
         public override RUDPPacket Deserialize(byte[] header, byte[] data)
         {
             RUDPPacket p = new RUDPPacket();
-            using (MemoryStream ms = new MemoryStream(data))
+            MemoryStream ms = new MemoryStream(data);
             using (BinaryReader br = new BinaryReader(ms))
             {
                 br.ReadBytes(header.Length);
@@ -28,8 +28,7 @@ namespace SharpRUDP.Serializers
 
         public override byte[] Serialize(byte[] header, RUDPPacket p)
         {
-            byte[] rv;
-            using (MemoryStream ms = new MemoryStream())
+            MemoryStream ms = new MemoryStream();
             using (BinaryWriter bw = new BinaryWriter(ms))
             {
                 bw.Write(header);
@@ -39,17 +38,14 @@ namespace SharpRUDP.Serializers
                 bw.Write((byte)p.Type);
                 bw.Write((byte)p.Flags);
                 bw.Write(p.Data == null ? 0 : p.Data.Length);
-                if(p.Data != null)
+                if (p.Data != null)
                     bw.Write(p.Data);
-                bw.Write(p.intData == null? 0 : p.intData.Length);
-                if(p.intData != null)
-                    foreach(int i in p.intData)
+                bw.Write(p.intData == null ? 0 : p.intData.Length);
+                if (p.intData != null)
+                    foreach (int i in p.intData)
                         bw.Write(i);
-                rv = new byte[ms.Length];
-                byte[] msArray = ms.ToArray();
-                Buffer.BlockCopy(msArray, 0, rv, 0, msArray.Length);
             }
-            return rv;
+            return ms.ToArray();
         }
 
         public override string AsString(RUDPPacket p)
