@@ -1,4 +1,5 @@
-﻿using System;
+﻿using SharpRUDP.Serializers;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -6,56 +7,96 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace SharpRUDP
 {
     public class RUDPConnection : RUDPSocket
     {
+        #region Variables
         public bool IsServer { get; set; }
         public bool IsClient { get { return !IsServer; } }
         public ConnectionState State { get; set; }
         public int RecvFrequencyMs { get; set; }
+        public int KeepAliveInterval { get; set; }
+        public int ConnectionTimeout { get; set; }
         public int PacketIdLimit { get; set; }
         public int SequenceLimit { get; set; }
         public int ClientStartSequence { get; set; }
         public int ServerStartSequence { get; set; }
         public int MTU { get; set; }
         public byte[] PacketHeader { get; set; }
-        public byte[] InternalACKHeader { get; set; }
-        public byte[] InternalKeepAliveHeader { get; set; }
+        public byte[] InternalPacketHeader { get; set; }
+        public Dictionary<string, RUDPConnectionData> Connections { get; set; }
+        public RUDPSerializeMode ProtocolMode
+        {
+            get
+            {
+                if (_serializer.GetType() == typeof(RUDPJSONSerializer))
+                    return RUDPSerializeMode.JSON;
+                if (_serializer.GetType() == typeof(RUDPBinarySerializer))
+                    return RUDPSerializeMode.Binary;
+                ProtocolMode = RUDPSerializeMode.JSON;
+                return RUDPSerializeMode.JSON;
+            }
+            set
+            {
+                switch(value)
+                {
+                    case RUDPSerializeMode.JSON:
+                        _serializer = new RUDPJSONSerializer();
+                        break;
+                    case RUDPSerializeMode.Binary:
+                        _serializer = new RUDPBinarySerializer();
+                        break;
+                }
+            }
+        }
 
         public delegate void dlgEventVoid();
         public delegate void dlgEventConnection(IPEndPoint ep);
-        public delegate void dlgEventUserData(RUDPPacket p);
+        public delegate void dlgEventPacket(RUDPPacket p);
+        public delegate void dlgEventPacketId(int idPacket);
+        public delegate void dlgEventError(IPEndPoint ep, Exception ex);
         public event dlgEventConnection OnClientConnect;
         public event dlgEventConnection OnClientDisconnect;
         public event dlgEventConnection OnConnected;
-        public event dlgEventUserData OnPacketReceived;
+        public event dlgEventConnection OnDisconnected;
+        public event dlgEventPacket OnPacketReceived;
+        public event dlgEventPacketId OnPacketConfirmed;
+        public event dlgEventError OnSocketError;
 
-        private Dictionary<string, IPEndPoint> _clients { get; set; }
-        private Dictionary<string, RUDPConnectionData> _sequences { get; set; }
         private bool _isAlive = false;
         private int _maxMTU { get { return (int)(MTU * 0.80); } }
         private object _debugMutex = new object();
+        private SpinWait _sw = new SpinWait();
         private Thread _thRecv;
+        private Thread _thKeepAlive;
+        private RUDPSerializer _serializer;
+        private AutoResetEvent SignalPacketRecv = new AutoResetEvent(false);
+        #endregion
 
+        #region Initialization
         public RUDPConnection()
         {
             IsServer = false;
-            MTU = 500;
+            MTU = 1024 * 8;
             RecvFrequencyMs = 10;
             PacketIdLimit = int.MaxValue / 2;
             SequenceLimit = int.MaxValue / 2;
             ClientStartSequence = 100;
             ServerStartSequence = 200;
+            KeepAliveInterval = 1;
+            ConnectionTimeout = 5;
             State = ConnectionState.CLOSED;
-            PacketHeader = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF }; // DeadBeef
-            InternalACKHeader = new byte[] { 0xFA, 0xCE, 0xFE, 0xED }; // FaceFeed
-            InternalKeepAliveHeader = new byte[] { 0xBE, 0xEF, 0xFA, 0xCE }; // BeefFace (lol)
+            PacketHeader = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
+            InternalPacketHeader = new byte[] { 0xFA, 0xCE, 0xFE, 0xED };
+            ProtocolMode = RUDPSerializeMode.Binary;
         }
 
         private void Debug(object obj, params object[] args)
         {
+            //return;
             lock (_debugMutex)
             {
                 Console.ForegroundColor = IsServer ? ConsoleColor.Cyan : ConsoleColor.Green;
@@ -84,91 +125,159 @@ namespace SharpRUDP
         public virtual void Initialize(bool startThreads = true)
         {
             _isAlive = true;
-            _sequences = new Dictionary<string, RUDPConnectionData>();
-            _clients = new Dictionary<string, IPEndPoint>();
+            Connections = new Dictionary<string, RUDPConnectionData>();
             InitThreads(startThreads);
+        }
+
+        public override void SocketError(IPEndPoint ep, Exception ex)
+        {
+            base.SocketError(ep, ex);
+            OnSocketError?.Invoke(ep, ex);
         }
 
         public void InitThreads(bool start)
         {
             _thRecv = new Thread(() =>
             {
-                while(_isAlive)
+                while (_isAlive)
                 {
                     ProcessRecvQueue();
-                    Thread.Sleep(10);
+                    SignalPacketRecv.WaitOne(10);
                 }
             });
-            if(start)
+            _thKeepAlive = new Thread(() =>
+            {
+                while (_isAlive)
+                {
+                    List<string> offlineEndpoints = new List<string>();
+                    List<RUDPConnectionData> cons = new List<RUDPConnectionData>();
+                    lock(Connections)
+                        Parallel.ForEach(Connections, (kvp) =>
+                        {
+                            cons.Add(kvp.Value);
+                        });
+                    Parallel.ForEach(cons, (cn) =>
+                    {
+                        if ((DateTime.Now - cn.LastPacketDate).Seconds > ConnectionTimeout)
+                        {
+                            Debug("TIMEOUT");
+                            if (!IsServer)
+                                Disconnect();
+                            else
+                                offlineEndpoints.Add(cn.EndPoint.ToString());
+                        }
+                        else if ((DateTime.Now - cn.LastPacketDate).Seconds > KeepAliveInterval)
+                        {
+                            SendKeepAlive(cn.EndPoint);
+                            lock (cn.Pending)
+                                foreach (RUDPPacket p in cn.Pending)
+                                    RetransmitPacket(p);
+                        }
+                    });
+                    lock (Connections)
+                        foreach (string ep in offlineEndpoints)
+                        {
+                            OnClientDisconnect?.Invoke(Connections[ep].EndPoint);
+                            Connections.Remove(ep);
+                        }
+                    Thread.Sleep(KeepAliveInterval * 1000);
+                }
+            });
+            if (start)
+            {
                 _thRecv.Start();
-        }
+                _thKeepAlive.Start();
+            }
+        }        
+        #endregion
 
+        #region Connections
         public void Disconnect()
         {
+            if (State >= ConnectionState.CLOSING)
+                return;
             State = ConnectionState.CLOSING;
             _isAlive = false;
-            _socket.Shutdown(SocketShutdown.Both);
-            if (IsServer)
-                _socket.Close();
-            if (_thRecv != null)
-                while (_thRecv.IsAlive)
-                    Thread.Sleep(10);
-            State = ConnectionState.CLOSED;
+            Debug("DISCONNECT");
+            new Thread(() =>
+            {
+                try
+                {
+                    _socket.Shutdown(SocketShutdown.Both);
+                }
+                catch (Exception) { }
+                if (IsServer)
+                    _socket.Close();
+                if (_thRecv != null)
+                    while (_thRecv.IsAlive)
+                        Thread.Sleep(10);
+                if (_thKeepAlive != null)
+                    while (_thKeepAlive.IsAlive)
+                        Thread.Sleep(10);
+                State = ConnectionState.CLOSED;
+                if (!IsServer)
+                    OnDisconnected?.Invoke(RemoteEndPoint);
+            }).Start();
         }
 
-        public override void PacketReceive(IPEndPoint ep, byte[] data, int length)
+        private RUDPConnectionData GetConnection(RUDPPacket p)
         {
-            base.PacketReceive(ep, data, length);
-            if (length > PacketHeader.Length && data.Take(PacketHeader.Length).SequenceEqual(PacketHeader))
-            {
-                RUDPPacket p = RUDPPacket.Deserialize(PacketHeader, data);
-                p.Src = IsServer ? ep : RemoteEndPoint;
-                p.Received = DateTime.Now;
-                InitSequence(p.Src);
-                RUDPConnectionData sq = _sequences[p.Src.ToString()];
-                Send(p.Src, new RUDPInternalPackets.ACKPacket() { header = InternalACKHeader, sequence = p.Seq }.Serialize());
-                Debug("ACK SEND -> {0}: {1}", p.Src, p.Seq);
-                lock (sq.ReceivedPackets)
-                    sq.ReceivedPackets.Add(p);
-            }
-            else if (length > InternalACKHeader.Length && data.Take(InternalACKHeader.Length).SequenceEqual(InternalACKHeader))
-            {
-                IPEndPoint src = IsServer ? ep : RemoteEndPoint;
-                InitSequence(src);
-                RUDPConnectionData sq = _sequences[src.ToString()];
-                RUDPInternalPackets.ACKPacket ack = RUDPInternalPackets.ACKPacket.Deserialize(data);
-                Debug("ACK RECV <- {0}: {1}", src, ack.sequence);
-                lock (sq.Pending)
-                    sq.Pending.RemoveAll(x => x.Seq == ack.sequence);
-            }
-            else if (length > InternalKeepAliveHeader.Length && data.Take(InternalKeepAliveHeader.Length).SequenceEqual(InternalKeepAliveHeader))
-            { }
-            else
-                Console.WriteLine("[{0}] RAW RECV: [{1}]", GetType().ToString(), Encoding.ASCII.GetString(data, 0, length));
+            return GetConnection((p.Src == null) ? p.Dst : p.Src);
         }
 
+        private RUDPConnectionData GetConnection(IPEndPoint ep)
+        {
+            lock (Connections)
+            {
+                if (!Connections.ContainsKey(ep.ToString()))
+                {
+                    if (!Connections.ContainsKey(ep.ToString()))
+                    {
+                        Connections[ep.ToString()] = new RUDPConnectionData()
+                        {
+                            EndPoint = ep,
+                            Local = IsServer ? ServerStartSequence : ClientStartSequence,
+                            Remote = IsServer ? ClientStartSequence : ServerStartSequence
+                        };
+                        while (!Connections.ContainsKey(ep.ToString()))
+                            Thread.Sleep(1);
+                        Debug("NEW CONNECTION: {0}", Connections[ep.ToString()]);
+                    }
+                }
+            }
+            return Connections[ep.ToString()];
+        }
+        #endregion
+
+        #region Send
         public void Send(string data)
         {
             Send(RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, Encoding.ASCII.GetBytes(data));
         }
 
-        public void Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT, RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null)
+        public int Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT, RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null)
         {
+            if (!IsServer)
+                if (!_isAlive)
+                    return -1;
+            RUDPPacket packet = null;
             bool reset = false;
-            InitSequence(destination);
-            RUDPConnectionData sq = _sequences[destination.ToString()];
+            RUDPConnectionData cn = GetConnection(destination);
             if ((data != null && data.Length < _maxMTU) || data == null)
             {
-                SendPacket(new RUDPPacket()
+                packet = new RUDPPacket()
                 {
+                    Serializer = _serializer,
                     Dst = destination,
-                    Id = sq.PacketId,
+                    Id = cn.PacketId,
                     Type = type,
                     Flags = flags,
-                    Data = data
-                });
-                sq.PacketId++;
-                if (!IsServer && sq.Local > SequenceLimit)
+                    Data = data,
+                    intData = intData
+                };
+                SendPacket(packet);
+                cn.PacketId++;
+                if (!IsServer && cn.Local > SequenceLimit)
                     reset = true;
             }
             else if (data != null && data.Length >= _maxMTU)
@@ -184,11 +293,13 @@ namespace SharpRUDP
                     byte[] buf = data.Skip(i).Take(max).ToArray();
                     PacketsToSend.Add(new RUDPPacket()
                     {
+                        Serializer = _serializer,
                         Dst = destination,
-                        Id = sq.PacketId,
+                        Id = cn.PacketId,
                         Type = type,
                         Flags = flags,
-                        Data = buf
+                        Data = buf,
+                        intData = intData
                     });
                     i += _maxMTU;
                 }
@@ -197,63 +308,28 @@ namespace SharpRUDP
                     p.Qty = PacketsToSend.Count;
                     SendPacket(p);
                 }
-                sq.PacketId++;
-                if (!IsServer && sq.Local > SequenceLimit)
+                cn.PacketId++;
+                if (!IsServer && cn.Local > SequenceLimit)
                     reset = true;
+                packet = PacketsToSend.First();
             }
             else
                 throw new Exception("This should not happen");
-            if (sq.PacketId > PacketIdLimit)
-                sq.PacketId = 0;
+            if (cn.PacketId > PacketIdLimit)
+                cn.PacketId = 0;
             if (reset)
             {
                 SendPacket(new RUDPPacket()
                 {
+                    Serializer = _serializer,
                     Dst = destination,
                     Type = RUDPPacketType.RST
                 });
-                sq.Local = IsServer ? ServerStartSequence : ClientStartSequence;
+                cn.Local = IsServer ? ServerStartSequence : ClientStartSequence;
             }
+            return packet.Id;
         }
 
-        public void SendKeepAlive()
-        {
-            if(!IsServer)
-            {
-                InitSequence(RemoteEndPoint);
-                RUDPConnectionData sq = _sequences[RemoteEndPoint.ToString()];
-                Debug("KEEPALIVE -> {0}", RemoteEndPoint);
-                Send(RemoteEndPoint, new RUDPInternalPackets.KeepAlivePacket() { header = InternalKeepAliveHeader }.Serialize());
-            }
-        }
-
-        private bool InitSequence(RUDPPacket p)
-        {
-            return InitSequence(p.Src == null ? p.Dst : p.Src);
-        }
-
-        private bool InitSequence(IPEndPoint ep)
-        {
-            bool rv = false;
-            lock(_sequences)
-            {
-                if (!_sequences.ContainsKey(ep.ToString()))
-                {
-                    _sequences[ep.ToString()] = new RUDPConnectionData()
-                    {
-                        EndPoint = ep,
-                        Local = IsServer ? ServerStartSequence : ClientStartSequence,
-                        Remote = IsServer ? ClientStartSequence : ServerStartSequence
-                    };
-                    while (!_sequences.ContainsKey(ep.ToString()))
-                        Thread.Sleep(10);
-                    Debug("NEW SEQUENCE: {0}", _sequences[ep.ToString()]);
-                    rv = true;
-                }
-            }
-            return rv;
-        }
-        
         private void RetransmitPacket(RUDPPacket p)
         {
             p.Retransmit = true;
@@ -263,68 +339,102 @@ namespace SharpRUDP
         private void SendPacket(RUDPPacket p)
         {
             DateTime dtNow = DateTime.Now;
-
-            InitSequence(p.Dst);
-            RUDPConnectionData sq = _sequences[p.Dst.ToString()];
-
+            RUDPConnectionData cn = GetConnection(p.Dst);
             if (!p.Retransmit)
             {
-                p.Seq = sq.Local;
-                sq.Local++;
+                p.Seq = cn.Local;
+                cn.Local++;
                 p.Sent = dtNow;
-                lock (sq.Pending)
-                    foreach (RUDPPacket unconfirmed in sq.Pending.Where(x => (dtNow - x.Sent).Seconds >= 1))
-                        RetransmitPacket(unconfirmed);
+                lock (cn.Pending)
+                    cn.Pending.Add(p);
+                _sw.SpinOnce();
                 Debug("SEND -> {0}: {1}", p.Dst, p);
             }
-            else
-                Debug("RETRANSMIT -> {0}: {1}", p.Dst, p);
+            else { Debug("RETRANSMIT -> {0}: {1}", p.Dst, p); }
+            Send(p.Dst, (byte[])_serializer.Serialize(PacketHeader, p));
+        }
 
-            lock(sq.Pending)
+        public void SendKeepAlive(IPEndPoint ep)
+        {
+            Send(ep, new RUDPInternalPackets.ACKPacket() { header = InternalPacketHeader, sequence = 0 }.Serialize());
+        }
+        #endregion
+
+        #region Receive
+        public override void PacketReceive(IPEndPoint ep, byte[] data, int length)
+        {
+            base.PacketReceive(ep, data, length);
+            DateTime dtNow = DateTime.Now;
+            if (length > PacketHeader.Length && data.Take(PacketHeader.Length).SequenceEqual(PacketHeader))
             {
-                sq.Pending.RemoveAll(x => x.Dst.ToString() == p.Dst.ToString() && x.Seq == p.Seq);
-                sq.Pending.Add(p);
+                RUDPPacket p = RUDPPacket.Deserialize(_serializer, PacketHeader, data);
+                p.Serializer = _serializer;
+                p.Src = IsServer ? ep : RemoteEndPoint;
+                p.Received = DateTime.Now;
+                RUDPConnectionData cn = GetConnection(p.Src);
+                cn.LastPacketDate = dtNow;
+                Send(p.Src, new RUDPInternalPackets.ACKPacket() { header = InternalPacketHeader, sequence = p.Seq }.Serialize());
+                //Debug("ACK SEND -> {0}: {1}", p.Src, p.Seq);
+                lock (cn.ReceivedPackets)
+                    cn.ReceivedPackets.Add(p);
+                SignalPacketRecv.Set();
             }
-
-            Send(p.Dst, p.ToByteArray(PacketHeader));
+            else if (length > InternalPacketHeader.Length && data.Take(InternalPacketHeader.Length).SequenceEqual(InternalPacketHeader))
+            {
+                IPEndPoint src = IsServer ? ep : RemoteEndPoint;
+                RUDPConnectionData cn = GetConnection(src);
+                cn.LastPacketDate = dtNow;
+                RUDPInternalPackets.ACKPacket ack = RUDPInternalPackets.ACKPacket.Deserialize(data);
+                //Debug("ACK RECV <- {0}: {1}", src, ack.sequence);
+                lock (cn.Pending)
+                    cn.Pending.RemoveAll(x => x.Seq == ack.sequence);
+            }
+            else
+                Console.WriteLine("[{0}] RAW RECV: [{1}]", GetType().ToString(), Encoding.ASCII.GetString(data, 0, length));
         }
 
         public void ProcessRecvQueue()
         {
-            foreach(var cdata in _sequences)
+            List<RUDPConnectionData> connections = new List<RUDPConnectionData>();
+            lock(Connections)
+                Parallel.ForEach(Connections, (kvp) =>
+                {
+                    connections.Add(kvp.Value);
+                });
+            foreach (RUDPConnectionData cn in connections)
             {
-                RUDPConnectionData sq = cdata.Value;
-
                 List<RUDPPacket> PacketsToRecv = new List<RUDPPacket>();
-                lock (sq.ReceivedPackets)
-                    PacketsToRecv.AddRange(sq.ReceivedPackets.OrderBy(x => x.Seq));
+                lock (cn.ReceivedPackets)
+                    PacketsToRecv.AddRange(cn.ReceivedPackets.OrderBy(x => x.Seq));
                 PacketsToRecv = PacketsToRecv.GroupBy(x => x.Seq).Select(g => g.First()).ToList();
 
-                foreach(RUDPPacket p in PacketsToRecv)
+                List<int> idsToConfirm = new List<int>();
+
+                foreach (RUDPPacket p in PacketsToRecv)
                 {
-                    lock (sq.ReceivedPackets)
-                        sq.ReceivedPackets.Remove(p);
+                    lock (cn.ReceivedPackets)
+                        cn.ReceivedPackets.Remove(p);
 
                     if (p.Processed)
                         continue;
 
-                    if (p.Seq < sq.Remote)
+                    if (p.Seq < cn.Remote)
                     {
-                        sq.ReceivedPackets.Add(p);
+                        cn.ReceivedPackets.Add(p);
                         continue;
                     }
 
-                    if (p.Seq > sq.Remote)
+                    if (p.Seq > cn.Remote)
                     {
-                        sq.ReceivedPackets.Add(p);
+                        cn.ReceivedPackets.Add(p);
                         break;
-                    }                        
+                    }
 
                     Debug("RECV <- {0}: {1}", p.Src, p);
 
                     if (p.Qty == 0)
                     {
-                        sq.Remote++;
+                        cn.Remote++;
                         p.Processed = true;
 
                         if (p.Type == RUDPPacketType.SYN)
@@ -342,14 +452,22 @@ namespace SharpRUDP
                             continue;
                         }
 
-                        if(p.Type == RUDPPacketType.RST)
+                        if (p.Type == RUDPPacketType.RST)
                         {
-                            sq.Remote = IsServer ? ClientStartSequence : ServerStartSequence;
+                            cn.Remote = IsServer ? ClientStartSequence : ServerStartSequence;
                             continue;
                         }
 
-                        if(p.Type == RUDPPacketType.DAT)
+                        if (p.Type == RUDPPacketType.DAT)
+                        {
+                            idsToConfirm.Add(p.Id);
                             OnPacketReceived?.Invoke(p);
+                        }
+
+                        if (p.Type == RUDPPacketType.ACK)
+                            lock (cn.Pending)
+                                foreach (int packetId in p.intData)
+                                    OnPacketConfirmed?.Invoke(packetId);
                     }
                     else
                     {
@@ -360,21 +478,21 @@ namespace SharpRUDP
                             Debug("MULTIPACKET {0}", p.Id);
 
                             byte[] buf;
-                            using (MemoryStream ms = new MemoryStream())
-                            {
-                                using (BinaryWriter bw = new BinaryWriter(ms))
-                                    foreach (RUDPPacket mp in multiPackets)
-                                    {
-                                        mp.Processed = true;
-                                        bw.Write(mp.Data);
-                                        Debug("RECV MP <- {0}: {1}", p.Src, mp);
-                                    }
-                                buf = ms.ToArray();
-                            }
+                            MemoryStream ms = new MemoryStream();
+                            using (BinaryWriter bw = new BinaryWriter(ms))
+                                foreach (RUDPPacket mp in multiPackets)
+                                {
+                                    mp.Processed = true;
+                                    bw.Write(mp.Data);
+                                    Debug("RECV MP <- {0}: {1}", p.Src, mp);
+                                }
+                            buf = ms.ToArray();
                             Debug("MULTIPACKET ID {0} DATA: {1}", p.Id, Encoding.ASCII.GetString(buf));
 
+                            idsToConfirm.Add(p.Id);
                             OnPacketReceived?.Invoke(new RUDPPacket()
                             {
+                                Serializer = _serializer,
                                 Retransmit = p.Retransmit,
                                 Sent = p.Sent,
                                 Data = buf,
@@ -388,13 +506,13 @@ namespace SharpRUDP
                                 Type = p.Type
                             });
 
-                            sq.Remote += p.Qty;
+                            cn.Remote += p.Qty;
                         }
                         else
                         {
                             if (multiPackets.Count < p.Qty)
                             {
-                                sq.ReceivedPackets.Add(p);
+                                cn.ReceivedPackets.Add(p);
                                 break;
                             }
                             else
@@ -405,7 +523,11 @@ namespace SharpRUDP
                         }
                     }
                 }
+                if(idsToConfirm.Count > 0)
+                if (idsToConfirm.Count > 0)
+                    Send(cn.EndPoint, RUDPPacketType.ACK, RUDPPacketFlags.NUL, null, idsToConfirm.ToArray());
             }
-        }        
+        }
+        #endregion
     }
 }

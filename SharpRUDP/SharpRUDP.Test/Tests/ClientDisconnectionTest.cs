@@ -1,17 +1,21 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+﻿using NUnit.Framework;
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Text;
 using System.Threading;
 
 namespace SharpRUDP.Test
 {
-    [TestClass]
-    public class MultiPacketSmallTest
+    public class ClientDisconnectionTest : NUnitTestClass
     {
-        [TestMethod, Timeout(30000)]
-        public void MultiPacketSmall()
+        int _packetMax = 10;
+        int _packetSize = 10;
+        int _multiplier = 1;
+
+        public override void Run()
         {
-            int maxPackets = 100;
             bool finished = false;
 
             RUDPConnection s = new RUDPConnection();
@@ -22,7 +26,7 @@ namespace SharpRUDP.Test
                 Thread.Sleep(10);
             Assert.AreEqual(ConnectionState.OPEN, c.State);
 
-            byte[] buf = new byte[1 * 1024];
+            byte[] buf = new byte[_packetSize * _multiplier];
             Random r = new Random(DateTime.Now.Second);
             r.NextBytes(buf);
 
@@ -31,31 +35,32 @@ namespace SharpRUDP.Test
             {
                 Assert.IsTrue(p.Data.SequenceEqual(buf));
                 counter++;
-                if (counter >= maxPackets)
-                    finished = true;
+                if (counter >= 4)
+                    if (c.State == ConnectionState.OPEN)
+                        c.Disconnect();
+            };
+            c.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("CLIENT ERROR {0}: {1}", ep, ex.Message); };
+            s.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("SERVER ERROR {0}: {1}", ep, ex.Message); };
+            s.OnClientDisconnect += (IPEndPoint ep) =>
+            {
+                Console.WriteLine("{0} disconnected.", ep);
+                finished = true;
             };
 
-            for (int i = 0; i < maxPackets; i++)
+            for (int i = 0; i < _packetMax; i++)
             {
-                Thread.Sleep(1 * r.Next(0, 10));
+                Thread.Sleep(100);
                 c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
             }
 
             while (!finished)
                 Thread.Sleep(10);
 
-            counter = 0;
-            finished = false;
-            for (int i = 0; i < maxPackets; i++)
-                c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
-
-            while (!finished)
-                Thread.Sleep(10);
-
             s.Disconnect();
             c.Disconnect();
-            while (c.State != ConnectionState.CLOSED && s.State != ConnectionState.CLOSED)
+            while (!(c.State == ConnectionState.CLOSED && s.State == ConnectionState.CLOSED))
                 Thread.Sleep(10);
+
             Assert.AreEqual(ConnectionState.CLOSED, s.State);
             Assert.AreEqual(ConnectionState.CLOSED, c.State);
         }

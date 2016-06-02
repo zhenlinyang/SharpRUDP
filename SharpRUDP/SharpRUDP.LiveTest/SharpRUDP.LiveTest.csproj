@@ -51,7 +51,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\SharpRUDP.Test\SharpRUDP.Test.csproj">
-      <Project>{cc5ebca9-5d4a-49f7-b36a-59104de07cc8}</Project>
+      <Project>{067456c0-086c-46a8-b37f-1405717b7bfc}</Project>
       <Name>SharpRUDP.Test</Name>
     </ProjectReference>
   </ItemGroup>

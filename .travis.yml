@@ -1,2 +1,8 @@
 language: csharp
 script: xbuild /p:Configuration=Travis SharpRUDP/SharpRUDP.sln
+before_install:
+  - sudo apt-get install nunit-console
+before_script:
+  - nuget restore SharpRUDP/SharpRUDP.sln
+after_script:
+  - nunit-console SharpRUDP/SharpRUDP.Test/bin/Travis/SharpRUDP.Test.dll
