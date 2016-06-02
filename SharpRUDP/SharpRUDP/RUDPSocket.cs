@@ -5,7 +5,7 @@ using System.Text;
 
 namespace SharpRUDP
 {
-    public class RUDPSocket
+    public class RUDPSocket : IDisposable
     {
         internal Socket _socket;
         private const int bufSize = 64 * 1024;
@@ -33,7 +33,7 @@ namespace SharpRUDP
         {
             bool connect = false;
             IPAddress ipAddress;
-            if(IPAddress.TryParse(address, out ipAddress))
+            if (IPAddress.TryParse(address, out ipAddress))
             {
                 Console.WriteLine("Connecting to {0}", ipAddress);
                 RemoteEndPoint = new IPEndPoint(ipAddress, port);
@@ -42,7 +42,7 @@ namespace SharpRUDP
                 connect = true;
             }
             else
-                foreach(IPAddress ip in Dns.GetHostEntry(address).AddressList)
+                foreach (IPAddress ip in Dns.GetHostEntry(address).AddressList)
                 {
                     try
                     {
@@ -63,18 +63,25 @@ namespace SharpRUDP
         internal void Send(IPEndPoint endPoint, byte[] data)
         {
             PacketSending(endPoint, data, data.Length);
-            _socket.BeginSendTo(data, 0, data.Length, SocketFlags.None, endPoint, (ar) =>
+            try
             {
-                try
+                _socket.BeginSendTo(data, 0, data.Length, SocketFlags.None, endPoint, (ar) =>
                 {
-                    StateObject so = (StateObject)ar.AsyncState;
-                    int bytes = _socket.EndSend(ar);
-                }
-                catch (Exception ex)
-                {
-                    SocketError(ex);
-                }
-            }, state);
+                    try
+                    {
+                        StateObject so = (StateObject)ar.AsyncState;
+                        int bytes = _socket.EndSend(ar);
+                    }
+                    catch (Exception ex)
+                    {
+                        SocketError(endPoint, ex);
+                    }
+                }, state);
+            }
+            catch (Exception ex)
+            {
+                SocketError(endPoint, ex);
+            }
         }
 
         private void Receive()
@@ -92,12 +99,12 @@ namespace SharpRUDP
                 }
                 catch (Exception ex)
                 {
-                    SocketError(ex);
+                    SocketError((IPEndPoint)ep, ex);
                 }
             }, state);
         }
 
-        public virtual void SocketError(Exception ex) { }
+        public virtual void SocketError(IPEndPoint ep, Exception ex) { }
 
         public virtual int PacketSending(IPEndPoint endPoint, byte[] data, int length)
         {
@@ -108,6 +115,17 @@ namespace SharpRUDP
         public virtual void PacketReceive(IPEndPoint ep, byte[] data, int length)
         {
             RUDPLogger.Trace("RECV <- {0}: {1}", ep, Encoding.ASCII.GetString(data, 0, length));
+        }
+
+        protected virtual void Dispose(bool value)
+        {
+            _socket.Dispose();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
     }
 }

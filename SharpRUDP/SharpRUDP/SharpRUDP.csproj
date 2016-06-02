@@ -53,13 +53,17 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RUDPConnectionState.cs" />
     <Compile Include="RUDPConnection.cs" />
-    <Compile Include="RUDPInternalPacket.cs" />
+    <Compile Include="RUDPInternalPackets.cs" />
     <Compile Include="RUDPLogger.cs" />
     <Compile Include="RUDPPacket.cs" />
     <Compile Include="RUDPPacketFlags.cs" />
     <Compile Include="RUDPPacketType.cs" />
     <Compile Include="RUDPConnectionData.cs" />
     <Compile Include="RUDPSocket.cs" />
+    <Compile Include="Serializers\RUDPBinarySerializer.cs" />
+    <Compile Include="Serializers\RUDPJSONSerializer.cs" />
+    <Compile Include="Serializers\RUDPSerializeMode.cs" />
+    <Compile Include="Serializers\RUDPSerializer.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
