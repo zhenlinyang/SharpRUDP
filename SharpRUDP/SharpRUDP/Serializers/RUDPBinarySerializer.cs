@@ -31,20 +31,33 @@ namespace SharpRUDP.Serializers
             MemoryStream ms = new MemoryStream();
             using (BinaryWriter bw = new BinaryWriter(ms))
             {
+                //写入头
                 bw.Write(header);
                 bw.Write(p.Seq);
+                //写入Id
                 bw.Write(p.Id);
                 bw.Write(p.Qty);
                 bw.Write((byte)p.Type);
                 bw.Write((byte)p.Flags);
+                //写入数据长度
                 bw.Write(p.Data == null ? 0 : p.Data.Length);
+                //如果有数据，则写入数据
                 if (p.Data != null)
+                {
                     bw.Write(p.Data);
+                }
+                //写入int数据长度
                 bw.Write(p.intData == null ? 0 : p.intData.Length);
+                //如果有int数据，则写入数据
                 if (p.intData != null)
+                {
                     foreach (int i in p.intData)
+                    {
                         bw.Write(i);
+                    }
+                }               
             }
+            //内存流转换为byte数组
             return ms.ToArray();
         }
 
@@ -56,8 +69,8 @@ namespace SharpRUDP.Serializers
                 p.Qty,
                 p.Type.ToString(),
                 p.Flags.ToString(),
-                p.Data == null ? "0" : (p.Data.Length > 30 ? p.Data.Length.ToString() : string.Join(",", p.Data)),
-                p.intData == null ? "0" : string.Join(",", p.intData)
+                (p.Data == null) ? "0" : (p.Data.Length > 30 ? p.Data.Length.ToString() : string.Join(",", p.Data)),
+                (p.intData == null) ? "0" : string.Join(",", p.intData)
             );
         }
     }

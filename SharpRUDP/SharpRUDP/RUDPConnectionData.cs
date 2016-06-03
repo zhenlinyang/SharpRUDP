@@ -11,6 +11,9 @@ namespace SharpRUDP
         public int? Remote { get; set; }
         public int PacketId { get; set; }
         public List<RUDPPacket> ReceivedPackets { get; set; }
+        /// <summary>
+        ///     等待
+        /// </summary>
         public List<RUDPPacket> Pending { get; set; }
         public ConnectionState State { get; set; }
         public DateTime LastPacketDate { get; set; }

@@ -14,34 +14,75 @@ namespace SharpRUDP
     public class RUDPConnection : RUDPSocket
     {
         #region Variables
+
+        /// <summary>
+        ///     是否是服务器
+        /// </summary>
         public bool IsServer { get; set; }
-        public bool IsClient { get { return !IsServer; } }
+
+        /// <summary>
+        ///     是否是客户端
+        /// </summary>
+        public bool IsClient
+        {
+            get { return !IsServer; }
+        }
+
+        /// <summary>
+        ///     连接状态
+        /// </summary>
         public ConnectionState State { get; set; }
+
         public int RecvFrequencyMs { get; set; }
         public int KeepAliveInterval { get; set; }
+
+        /// <summary>
+        ///     超时
+        /// </summary>
         public int ConnectionTimeout { get; set; }
+
         public int PacketIdLimit { get; set; }
         public int SequenceLimit { get; set; }
         public int ClientStartSequence { get; set; }
         public int ServerStartSequence { get; set; }
+
+        /// <summary>
+        ///     传输单元
+        /// </summary>
         public int MTU { get; set; }
+
+        /// <summary>
+        ///     包头
+        /// </summary>
         public byte[] PacketHeader { get; set; }
+
+        /// <summary>
+        ///     内部包头
+        /// </summary>
         public byte[] InternalPacketHeader { get; set; }
+
+        /// <summary>
+        ///     数据字典
+        /// </summary>
         public Dictionary<string, RUDPConnectionData> Connections { get; set; }
+
+        /// <summary>
+        ///     管道序列类型
+        /// </summary>
         public RUDPSerializeMode ProtocolMode
         {
             get
             {
-                if (_serializer.GetType() == typeof(RUDPJSONSerializer))
+                if (_serializer.GetType() == typeof (RUDPJSONSerializer))
                     return RUDPSerializeMode.JSON;
-                if (_serializer.GetType() == typeof(RUDPBinarySerializer))
+                if (_serializer.GetType() == typeof (RUDPBinarySerializer))
                     return RUDPSerializeMode.Binary;
                 ProtocolMode = RUDPSerializeMode.JSON;
                 return RUDPSerializeMode.JSON;
             }
             set
             {
-                switch(value)
+                switch (value)
                 {
                     case RUDPSerializeMode.JSON:
                         _serializer = new RUDPJSONSerializer();
@@ -54,43 +95,88 @@ namespace SharpRUDP
         }
 
         public delegate void dlgEventVoid();
+
         public delegate void dlgEventConnection(IPEndPoint ep);
+
         public delegate void dlgEventPacket(RUDPPacket p);
+
         public delegate void dlgEventPacketId(int idPacket);
+
         public delegate void dlgEventError(IPEndPoint ep, Exception ex);
+
+
+        /// <summary>
+        ///     客户端连接
+        /// </summary>
         public event dlgEventConnection OnClientConnect;
+
+        /// <summary>
+        ///     客户端不连接
+        /// </summary>
         public event dlgEventConnection OnClientDisconnect;
+
         public event dlgEventConnection OnConnected;
         public event dlgEventConnection OnDisconnected;
+
+        /// <summary>
+        ///     收到包
+        /// </summary>
         public event dlgEventPacket OnPacketReceived;
+
+        /// <summary>
+        ///     收到包确认
+        /// </summary>
         public event dlgEventPacketId OnPacketConfirmed;
+
+        /// <summary>
+        ///     Socket错误
+        /// </summary>
         public event dlgEventError OnSocketError;
 
         private bool _isAlive = false;
-        private int _maxMTU { get { return (int)(MTU * 0.80); } }
+
+        /// <summary>
+        ///     最大传输单元
+        /// </summary>
+        private int _maxMTU
+        {
+            get { return (int) (MTU*0.80); }
+        }
+
         private object _debugMutex = new object();
         private SpinWait _sw = new SpinWait();
+
+        /// <summary>
+        ///     收 线程
+        /// </summary>
         private Thread _thRecv;
+
+        /// <summary>
+        ///     保持活跃 线程
+        /// </summary>
         private Thread _thKeepAlive;
+
         private RUDPSerializer _serializer;
         private AutoResetEvent SignalPacketRecv = new AutoResetEvent(false);
+
         #endregion
 
         #region Initialization
+
         public RUDPConnection()
         {
             IsServer = false;
-            MTU = 1024 * 8;
+            MTU = 1024*8;
             RecvFrequencyMs = 10;
-            PacketIdLimit = int.MaxValue / 2;
-            SequenceLimit = int.MaxValue / 2;
+            PacketIdLimit = int.MaxValue/2;
+            SequenceLimit = int.MaxValue/2;
             ClientStartSequence = 100;
             ServerStartSequence = 200;
             KeepAliveInterval = 1;
             ConnectionTimeout = 5;
             State = ConnectionState.CLOSED;
-            PacketHeader = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
-            InternalPacketHeader = new byte[] { 0xFA, 0xCE, 0xFE, 0xED };
+            PacketHeader = new byte[] {0xDE, 0xAD, 0xBE, 0xEF};
+            InternalPacketHeader = new byte[] {0xFA, 0xCE, 0xFE, 0xED};
             ProtocolMode = RUDPSerializeMode.Binary;
         }
 
@@ -99,12 +185,18 @@ namespace SharpRUDP
             //return;
             lock (_debugMutex)
             {
+                //服务器-青色/客户端-绿色
                 Console.ForegroundColor = IsServer ? ConsoleColor.Cyan : ConsoleColor.Green;
                 RUDPLogger.Info(IsServer ? "[S]" : "[C]", obj, args);
                 Console.ResetColor();
             }
         }
 
+        /// <summary>
+        ///     （客户端方法）连接
+        /// </summary>
+        /// <param name="address">地址</param>
+        /// <param name="port">端口</param>
         public void Connect(string address, int port)
         {
             IsServer = false;
@@ -114,6 +206,11 @@ namespace SharpRUDP
             Send(RemoteEndPoint, RUDPPacketType.SYN);
         }
 
+        /// <summary>
+        ///     （服务器方法）监听
+        /// </summary>
+        /// <param name="address">地址</param>
+        /// <param name="port">端口</param>
         public void Listen(string address, int port)
         {
             IsServer = true;
@@ -122,6 +219,10 @@ namespace SharpRUDP
             Initialize();
         }
 
+        /// <summary>
+        ///     初始化
+        /// </summary>
+        /// <param name="startThreads"></param>
         public virtual void Initialize(bool startThreads = true)
         {
             _isAlive = true;
@@ -151,36 +252,45 @@ namespace SharpRUDP
                 {
                     List<string> offlineEndpoints = new List<string>();
                     List<RUDPConnectionData> cons = new List<RUDPConnectionData>();
-                    lock(Connections)
-                        Parallel.ForEach(Connections, (kvp) =>
-                        {
-                            cons.Add(kvp.Value);
-                        });
-                    Parallel.ForEach(cons, (cn) =>
+                    lock (Connections)
+                    {
+                        Parallel.ForEach(Connections, (kvp) => { cons.Add(kvp.Value); });
+                    }
+                    Parallel.ForEach(cons, delegate(RUDPConnectionData cn)
                     {
                         if ((DateTime.Now - cn.LastPacketDate).Seconds > ConnectionTimeout)
                         {
                             Debug("TIMEOUT");
                             if (!IsServer)
+                            {
                                 Disconnect();
+                            }
                             else
+                            {
                                 offlineEndpoints.Add(cn.EndPoint.ToString());
+                            }
                         }
                         else if ((DateTime.Now - cn.LastPacketDate).Seconds > KeepAliveInterval)
                         {
                             SendKeepAlive(cn.EndPoint);
                             lock (cn.Pending)
+                            {
                                 foreach (RUDPPacket p in cn.Pending)
+                                {
                                     RetransmitPacket(p);
+                                }
+                            }
                         }
                     });
                     lock (Connections)
+                    {
                         foreach (string ep in offlineEndpoints)
                         {
                             OnClientDisconnect?.Invoke(Connections[ep].EndPoint);
                             Connections.Remove(ep);
                         }
-                    Thread.Sleep(KeepAliveInterval * 1000);
+                    }
+                    Thread.Sleep(KeepAliveInterval*1000);
                 }
             });
             if (start)
@@ -188,10 +298,12 @@ namespace SharpRUDP
                 _thRecv.Start();
                 _thKeepAlive.Start();
             }
-        }        
+        }
+
         #endregion
 
         #region Connections
+
         public void Disconnect()
         {
             if (State >= ConnectionState.CLOSING)
@@ -205,7 +317,9 @@ namespace SharpRUDP
                 {
                     _socket.Shutdown(SocketShutdown.Both);
                 }
-                catch (Exception) { }
+                catch (Exception)
+                {
+                }
                 if (IsServer)
                     _socket.Close();
                 if (_thRecv != null)
@@ -247,15 +361,18 @@ namespace SharpRUDP
             }
             return Connections[ep.ToString()];
         }
+
         #endregion
 
         #region Send
+
         public void Send(string data)
         {
             Send(RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, Encoding.ASCII.GetBytes(data));
         }
 
-        public int Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT, RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null)
+        public int Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT,
+            RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null)
         {
             if (!IsServer)
                 if (!_isAlive)
@@ -346,21 +463,28 @@ namespace SharpRUDP
                 cn.Local++;
                 p.Sent = dtNow;
                 lock (cn.Pending)
+                {
                     cn.Pending.Add(p);
+                }
                 _sw.SpinOnce();
                 Debug("SEND -> {0}: {1}", p.Dst, p);
             }
-            else { Debug("RETRANSMIT -> {0}: {1}", p.Dst, p); }
-            Send(p.Dst, (byte[])_serializer.Serialize(PacketHeader, p));
+            else
+            {
+                Debug("RETRANSMIT -> {0}: {1}", p.Dst, p);
+            }
+            Send(p.Dst, (byte[]) _serializer.Serialize(PacketHeader, p));
         }
 
         public void SendKeepAlive(IPEndPoint ep)
         {
-            Send(ep, new RUDPInternalPackets.ACKPacket() { header = InternalPacketHeader, sequence = 0 }.Serialize());
+            Send(ep, new RUDPInternalPackets.ACKPacket() {header = InternalPacketHeader, sequence = 0}.Serialize());
         }
+
         #endregion
 
         #region Receive
+
         public override void PacketReceive(IPEndPoint ep, byte[] data, int length)
         {
             base.PacketReceive(ep, data, length);
@@ -373,13 +497,15 @@ namespace SharpRUDP
                 p.Received = DateTime.Now;
                 RUDPConnectionData cn = GetConnection(p.Src);
                 cn.LastPacketDate = dtNow;
-                Send(p.Src, new RUDPInternalPackets.ACKPacket() { header = InternalPacketHeader, sequence = p.Seq }.Serialize());
+                Send(p.Src,
+                    new RUDPInternalPackets.ACKPacket() {header = InternalPacketHeader, sequence = p.Seq}.Serialize());
                 //Debug("ACK SEND -> {0}: {1}", p.Src, p.Seq);
                 lock (cn.ReceivedPackets)
                     cn.ReceivedPackets.Add(p);
                 SignalPacketRecv.Set();
             }
-            else if (length > InternalPacketHeader.Length && data.Take(InternalPacketHeader.Length).SequenceEqual(InternalPacketHeader))
+            else if (length > InternalPacketHeader.Length &&
+                     data.Take(InternalPacketHeader.Length).SequenceEqual(InternalPacketHeader))
             {
                 IPEndPoint src = IsServer ? ep : RemoteEndPoint;
                 RUDPConnectionData cn = GetConnection(src);
@@ -390,33 +516,42 @@ namespace SharpRUDP
                     cn.Pending.RemoveAll(x => x.Seq == ack.sequence);
             }
             else
-                Console.WriteLine("[{0}] RAW RECV: [{1}]", GetType().ToString(), Encoding.ASCII.GetString(data, 0, length));
+                Console.WriteLine("[{0}] RAW RECV: [{1}]", GetType().ToString(),
+                    Encoding.ASCII.GetString(data, 0, length));
         }
 
         public void ProcessRecvQueue()
         {
             List<RUDPConnectionData> connections = new List<RUDPConnectionData>();
-            lock(Connections)
-                Parallel.ForEach(Connections, (kvp) =>
-                {
-                    connections.Add(kvp.Value);
-                });
+            lock (Connections)
+            {
+                Parallel.ForEach(Connections,
+                    delegate(KeyValuePair<string, RUDPConnectionData> kvp) { connections.Add(kvp.Value); });
+            }
+
             foreach (RUDPConnectionData cn in connections)
             {
                 List<RUDPPacket> PacketsToRecv = new List<RUDPPacket>();
                 lock (cn.ReceivedPackets)
-                    PacketsToRecv.AddRange(cn.ReceivedPackets.OrderBy(x => x.Seq));
-                PacketsToRecv = PacketsToRecv.GroupBy(x => x.Seq).Select(g => g.First()).ToList();
+                {
+                    PacketsToRecv.AddRange(cn.ReceivedPackets.OrderBy(delegate(RUDPPacket x) { return x.Seq; }));
+                }
+                PacketsToRecv = PacketsToRecv.GroupBy(delegate(RUDPPacket x) { return x.Seq; }).Select(
+                    delegate(IGrouping<int, RUDPPacket> g) { return g.First(); }).ToList();
 
                 List<int> idsToConfirm = new List<int>();
 
                 foreach (RUDPPacket p in PacketsToRecv)
                 {
                     lock (cn.ReceivedPackets)
+                    {
                         cn.ReceivedPackets.Remove(p);
+                    }
 
                     if (p.Processed)
+                    {
                         continue;
+                    }
 
                     if (p.Seq < cn.Remote)
                     {
@@ -523,11 +658,12 @@ namespace SharpRUDP
                         }
                     }
                 }
-                if(idsToConfirm.Count > 0)
                 if (idsToConfirm.Count > 0)
-                    Send(cn.EndPoint, RUDPPacketType.ACK, RUDPPacketFlags.NUL, null, idsToConfirm.ToArray());
+                    if (idsToConfirm.Count > 0)
+                        Send(cn.EndPoint, RUDPPacketType.ACK, RUDPPacketFlags.NUL, null, idsToConfirm.ToArray());
             }
         }
+
         #endregion
     }
 }
