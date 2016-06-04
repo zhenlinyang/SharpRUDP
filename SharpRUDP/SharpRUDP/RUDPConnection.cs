@@ -14,6 +14,10 @@ namespace SharpRUDP
     public class RUDPConnection : RUDPSocket
     {
         #region Variables
+        public bool DebugEnabled { get; set; }
+
+        public int Port { get; set; }
+        public string Address { get; set; }
         public bool IsServer { get; set; }
         public bool IsClient { get { return !IsServer; } }
         public ConnectionState State { get; set; }
@@ -28,7 +32,7 @@ namespace SharpRUDP
         public byte[] PacketHeader { get; set; }
         public byte[] InternalPacketHeader { get; set; }
         public Dictionary<string, RUDPConnectionData> Connections { get; set; }
-        public RUDPSerializeMode ProtocolMode
+        public RUDPSerializeMode SerializeMode
         {
             get
             {
@@ -36,7 +40,7 @@ namespace SharpRUDP
                     return RUDPSerializeMode.JSON;
                 if (_serializer.GetType() == typeof(RUDPBinarySerializer))
                     return RUDPSerializeMode.Binary;
-                ProtocolMode = RUDPSerializeMode.JSON;
+                SerializeMode = RUDPSerializeMode.JSON;
                 return RUDPSerializeMode.JSON;
             }
             set
@@ -79,6 +83,7 @@ namespace SharpRUDP
         #region Initialization
         public RUDPConnection()
         {
+            DebugEnabled = true;
             IsServer = false;
             MTU = 1024 * 8;
             RecvFrequencyMs = 10;
@@ -91,12 +96,13 @@ namespace SharpRUDP
             State = ConnectionState.CLOSED;
             PacketHeader = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
             InternalPacketHeader = new byte[] { 0xFA, 0xCE, 0xFE, 0xED };
-            ProtocolMode = RUDPSerializeMode.Binary;
+            SerializeMode = RUDPSerializeMode.Binary;
         }
 
         private void Debug(object obj, params object[] args)
         {
-            //return;
+            if(!DebugEnabled)
+                return;
             lock (_debugMutex)
             {
                 Console.ForegroundColor = IsServer ? ConsoleColor.Cyan : ConsoleColor.Green;
@@ -107,6 +113,8 @@ namespace SharpRUDP
 
         public void Connect(string address, int port)
         {
+            Port = port;
+            Address = address;
             IsServer = false;
             State = ConnectionState.OPENING;
             Client(address, port);
@@ -116,6 +124,8 @@ namespace SharpRUDP
 
         public void Listen(string address, int port)
         {
+            Port = port;
+            Address = address;
             IsServer = true;
             Server(address, port);
             State = ConnectionState.LISTEN;
@@ -523,7 +533,6 @@ namespace SharpRUDP
                         }
                     }
                 }
-                if(idsToConfirm.Count > 0)
                 if (idsToConfirm.Count > 0)
                     Send(cn.EndPoint, RUDPPacketType.ACK, RUDPPacketFlags.NUL, null, idsToConfirm.ToArray());
             }
