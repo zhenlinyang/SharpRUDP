@@ -68,6 +68,7 @@
     <Compile Include="NUnitTester.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Tests\ClientDisconnectionTest.cs" />
+    <Compile Include="Tests\KeepAliveTest.cs" />
     <Compile Include="Tests\ServerDisconnectionTest.cs" />
     <Compile Include="Tests\PacketTest.cs" />
   </ItemGroup>
