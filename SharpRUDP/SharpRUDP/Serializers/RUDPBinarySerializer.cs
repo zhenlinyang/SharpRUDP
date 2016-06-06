@@ -1,5 +1,4 @@
-﻿using System;
-using System.IO;
+﻿using System.IO;
 
 namespace SharpRUDP.Serializers
 {
@@ -56,8 +55,8 @@ namespace SharpRUDP.Serializers
                 p.Qty,
                 p.Type.ToString(),
                 p.Flags.ToString(),
-                p.Data == null ? "0" : (p.Data.Length > 30 ? p.Data.Length.ToString() : string.Join(",", p.Data)),
-                p.intData == null ? "0" : string.Join(",", p.intData)
+                p.Data == null ? "" : (p.Data.Length > 30 ? p.Data.Length.ToString() : string.Join(",", p.Data)),
+                p.intData == null ? "" : string.Join(",", p.intData)
             );
         }
     }

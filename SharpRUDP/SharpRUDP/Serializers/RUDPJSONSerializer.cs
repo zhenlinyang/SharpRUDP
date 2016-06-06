@@ -24,7 +24,7 @@ namespace SharpRUDP.Serializers
         public override string AsString(RUDPPacket p)
         {
             string js = _js.Serialize(p);
-            js = js + string.Format(" RT:{0} ACK:{1} PROC:{2}", p.Retransmit ? 1 : 0, p.Acknowledged ? 1 : 0, p.Processed ? 1 : 0);
+            js = js + string.Format(" RT:{0} PROC:{2}", p.Retransmit ? 1 : 0, p.Processed ? 1 : 0);
             if (p.Data != null && p.Data.Length > 30)
                 return dataRegex.Replace(js, "\"Data\":" + (p.Data == null ? 0 : p.Data.Length) + "b");
             else

@@ -1,9 +1,7 @@
 ﻿using NUnit.Framework;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Text;
 using System.Threading;
 
 namespace SharpRUDP.Test
@@ -50,7 +48,7 @@ namespace SharpRUDP.Test
             for (int i = 0; i < _packetMax; i++)
             {
                 Thread.Sleep(100);
-                c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
+                c.Send(buf, (RUDPPacket p) => { Console.WriteLine("Packet {0} confirmed", p.Id); });
             }
 
             while (!finished)

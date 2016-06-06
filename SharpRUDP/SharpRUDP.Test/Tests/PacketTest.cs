@@ -1,8 +1,8 @@
-﻿using System;
-using System.Threading;
-using NUnit.Framework;
+﻿using NUnit.Framework;
+using System;
 using System.Linq;
 using System.Net;
+using System.Threading;
 
 namespace SharpRUDP.Test
 {
@@ -11,14 +11,12 @@ namespace SharpRUDP.Test
         int _packetMax;
         int _packetSize;
         int _multiplier;
-        bool _delay = false;
 
-        public PacketTest(int max, int size, int multiplier = 1024, bool delay = false)
+        public PacketTest(int max, int size, int multiplier = 1024)
         {
             _packetMax = max;
             _packetSize = size;
             _multiplier = multiplier;
-            _delay = delay;
         }
 
         public override void Run()
@@ -48,25 +46,16 @@ namespace SharpRUDP.Test
             c.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("CLIENT ERROR {0}: {1}", ep, ex.Message); };
             s.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("SERVER ERROR {0}: {1}", ep, ex.Message); };
 
-            if (_delay)
-            {
-                for (int i = 0; i < _packetMax; i++)
-                {
-                    Thread.Sleep(1 * r.Next(0, 10));
-                    c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
-                }
-
-                while (!finished)
-                    Thread.Sleep(10);
-            }
-
             counter = 0;
             finished = false;
             for (int i = 0; i < _packetMax; i++)
-                c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
+                c.Send(buf, (RUDPPacket p) => { Console.WriteLine("Packet {0} confirmed", p.Id); });
 
             while (!finished)
                 Thread.Sleep(10);
+
+            c.Status();
+            s.Status();
 
             s.Disconnect();
             c.Disconnect();
