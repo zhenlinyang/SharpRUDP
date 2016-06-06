@@ -253,12 +253,17 @@ namespace SharpRUDP
         #endregion
 
         #region Send
-        public void Send(string data)
+        public void Send(byte[] data, Action<RUDPPacket> OnPacketReceivedByDestination = null)
         {
-            Send(RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, Encoding.ASCII.GetBytes(data));
+            Send(RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, data, null, OnPacketReceivedByDestination);
         }
 
-        public int Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT, RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null)
+        public void Send(IPEndPoint ep, byte[] data, Action<RUDPPacket> OnPacketReceivedByDestination = null)
+        {
+            Send(ep, RUDPPacketType.DAT, RUDPPacketFlags.NUL, data, null, OnPacketReceivedByDestination);
+        }
+
+        private int Send(IPEndPoint destination, RUDPPacketType type = RUDPPacketType.DAT, RUDPPacketFlags flags = RUDPPacketFlags.NUL, byte[] data = null, int[] intData = null, Action<RUDPPacket> OnPacketReceivedByDestination = null)
         {
             if (!_isAlive)
                 return -1;
@@ -275,7 +280,8 @@ namespace SharpRUDP
                     Type = type,
                     Flags = flags,
                     Data = data,
-                    intData = intData
+                    intData = intData,
+                    OnPacketReceivedByDestination = OnPacketReceivedByDestination
                 };
                 SendPacket(packet);
                 cn.PacketId++;
@@ -308,6 +314,7 @@ namespace SharpRUDP
                 foreach (RUDPPacket p in PacketsToSend)
                 {
                     p.Qty = PacketsToSend.Count;
+                    p.OnPacketReceivedByDestination = OnPacketReceivedByDestination;
                     SendPacket(p);
                 }
                 cn.PacketId++;
@@ -348,16 +355,19 @@ namespace SharpRUDP
                 p.Sent = DateTime.Now;
                 lock (cn.Pending)
                     cn.Pending.Add(p);
+                if(p.Type != RUDPPacketType.ACK)
+                    lock (cn.Unconfirmed)
+                        cn.Unconfirmed.Add(p);
                 _sw.SpinOnce();
                 Debug("SEND -> {0}: {1}", p.Dst, p);
             }
             else { Debug("RETRANSMIT -> {0}: {1}", p.Dst, p); }
-            Send(p.Dst, _serializer.Serialize(PacketHeader, p));
+            SendBytes(p.Dst, _serializer.Serialize(PacketHeader, p));
         }
 
         public void SendKeepAlive(IPEndPoint ep)
         {
-            Send(ep, new RUDPInternalPackets.PingPacket() { header = PingPacketHeader }.Serialize());
+            SendBytes(ep, new RUDPInternalPackets.PingPacket() { header = PingPacketHeader }.Serialize());
         }
         #endregion
 
@@ -377,7 +387,7 @@ namespace SharpRUDP
                 p.Received = dtNow;
                 lock (cn.ReceivedPackets)
                     cn.ReceivedPackets.Add(p);
-                Send(p.Src, new RUDPInternalPackets.AckPacket() { header = AckPacketHeader, sequence = p.Seq }.Serialize());
+                SendBytes(p.Src, new RUDPInternalPackets.AckPacket() { header = AckPacketHeader, sequence = p.Seq }.Serialize());
                 //Debug("ACK SEND -> {0}: {1}", p.Src, p.Seq);
                 SignalPacketRecv.Set();
             }
@@ -408,6 +418,7 @@ namespace SharpRUDP
                 connections.AddRange(Connections.Select(x => x.Value));
             foreach (RUDPConnectionData cn in connections)
             {
+                List<int> IdsToConfirm = new List<int>();
                 List<RUDPPacket> PacketsToRecv = new List<RUDPPacket>();
                 lock (cn.ReceivedPackets)
                     PacketsToRecv.AddRange(cn.ReceivedPackets.OrderBy(x => x.Seq));
@@ -433,6 +444,19 @@ namespace SharpRUDP
                     }
 
                     Debug("RECV <- {0}: {1}", p.Src, p);
+
+                    if(p.Type != RUDPPacketType.ACK)
+                        IdsToConfirm.Add(p.Id);
+
+                    List<RUDPPacket> confirmedPackets = new List<RUDPPacket>();
+                    lock (cn.Unconfirmed)
+                    {
+                        confirmedPackets.AddRange(cn.Unconfirmed.Where(x => p.intData.Contains(x.Id)).OrderBy(x => x.Id));
+                        cn.Unconfirmed.RemoveAll(x => confirmedPackets.Select(y => y.Seq).Contains(x.Seq));
+                    }
+                    confirmedPackets = confirmedPackets.GroupBy(x => x.Id).Select(g => g.First()).ToList();
+                    foreach (RUDPPacket confirmedPacket in confirmedPackets)
+                        confirmedPacket.OnPacketReceivedByDestination?.Invoke(confirmedPacket);
 
                     if (p.Qty == 0)
                     {
@@ -482,6 +506,7 @@ namespace SharpRUDP
                             buf = ms.ToArray();
                             Debug("MULTIPACKET ID {0} DATA: {1}", p.Id, Encoding.ASCII.GetString(buf));
 
+                            IdsToConfirm.Add(p.Id);
                             OnPacketReceived?.Invoke(new RUDPPacket()
                             {
                                 Serializer = _serializer,
@@ -512,7 +537,28 @@ namespace SharpRUDP
                         }
                     }
                 }
+                if (IdsToConfirm.Count > 0)
+                    Send(cn.EndPoint, RUDPPacketType.ACK, RUDPPacketFlags.NUL, null, IdsToConfirm.ToArray());
             }
+        }
+        #endregion
+
+        #region Misc functions
+        public void Status()
+        {
+            Debug(IsServer ? "SERVER:" : "CLIENT:");
+            Debug("{0} connections alive", Connections.Count);
+            foreach(var kvp in Connections)
+            {
+                Debug("=== {0} ===", kvp.Key);
+                Debug("  {0} pending", kvp.Value.Pending.Count);
+                foreach (RUDPPacket p in kvp.Value.Pending)
+                    Debug("    {0}", p);
+                Debug("  {0} unconfirmed", kvp.Value.Unconfirmed.Count);
+                foreach (RUDPPacket p in kvp.Value.Unconfirmed)
+                    Debug("    {0}", p);
+            }
+            Debug("======================================================");
         }
         #endregion
     }

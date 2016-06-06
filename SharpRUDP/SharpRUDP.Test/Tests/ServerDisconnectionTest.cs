@@ -52,7 +52,7 @@ namespace SharpRUDP.Test
             s.OnSocketError += (IPEndPoint ep, Exception ex) => { Console.WriteLine("SERVER ERROR {0}: {1}", ep, ex.Message); };
 
             for (int i = 0; i < _packetMax / 2; i++)
-                c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
+                c.Send(buf, (RUDPPacket p) => { Console.WriteLine("Packet {0} confirmed", p.Id); });
 
             while (!finished)
                 Thread.Sleep(10);
@@ -62,7 +62,7 @@ namespace SharpRUDP.Test
 
             finished = false;
             for (int i = 0; i < _packetMax / 2; i++)
-                c.Send(c.RemoteEndPoint, RUDPPacketType.DAT, RUDPPacketFlags.NUL, buf);
+                c.Send(buf, (RUDPPacket p) => { Console.WriteLine("Packet {0} confirmed", p.Id); });
 
             while (!finished)
                 Thread.Sleep(10);

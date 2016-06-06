@@ -70,7 +70,7 @@ namespace SharpRUDP
             Receive();
         }
 
-        internal void Send(IPEndPoint endPoint, byte[] data)
+        internal void SendBytes(IPEndPoint endPoint, byte[] data)
         {
             PacketSending(endPoint, data, data.Length);
             try
@@ -114,11 +114,7 @@ namespace SharpRUDP
             }, state);
         }
 
-        public virtual void SocketError(IPEndPoint ep, Exception ex)
-        {
-            if (!_isServer)
-                Client(_address, _port);
-        }
+        public virtual void SocketError(IPEndPoint ep, Exception ex) { }
 
         public virtual int PacketSending(IPEndPoint endPoint, byte[] data, int length)
         {

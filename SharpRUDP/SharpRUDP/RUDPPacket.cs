@@ -21,6 +21,8 @@ namespace SharpRUDP
         public bool Retransmit { get; set; }
         [ScriptIgnore]
         public bool Processed { get; set; }
+        [ScriptIgnore]
+        public Action<RUDPPacket> OnPacketReceivedByDestination { get; set; }
 
         public int Seq { get; set; }
         public int Id { get; set; }
