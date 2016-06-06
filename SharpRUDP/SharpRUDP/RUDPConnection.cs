@@ -172,6 +172,9 @@ namespace SharpRUDP
                         {
                             cn.LastKeepAliveDate = dtNow;
                             SendKeepAlive(cn.EndPoint);
+                            lock (cn.Pending)
+                                foreach (RUDPPacket p in cn.Pending)
+                                    RetransmitPacket(p);
                         }
                         if ((dtNow - cn.LastPacketDate).Seconds >= ConnectionTimeout)
                         {
