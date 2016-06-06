@@ -14,12 +14,14 @@ namespace SharpRUDP
         public List<RUDPPacket> Pending { get; set; }
         public ConnectionState State { get; set; }
         public DateTime LastPacketDate { get; set; }
+        public DateTime LastKeepAliveDate { get; set; }
 
         public RUDPConnectionData()
         {
             PacketId = 0;
 			State = ConnectionState.OPEN;
             LastPacketDate = DateTime.Now;
+            LastKeepAliveDate = DateTime.Now;
             ReceivedPackets = new List<RUDPPacket>();
             Pending = new List<RUDPPacket>();
         }

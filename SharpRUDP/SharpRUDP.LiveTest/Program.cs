@@ -31,8 +31,9 @@ namespace SharpRUDP.LiveTest
             //RunAllTests();
             //new ClientDisconnectionTest().Run(); Wait();
             //new ServerDisconnectionTest().Run(); Wait();
-            new PacketTest(100, 1).Run(); Wait();
-            //new KeepAliveTest().Run(); Wait();
+            //new PacketTest(100, 1).Run(); Wait();
+            new KeepAliveTest(true).Run(); Wait();
+            new KeepAliveTest(false).Run(); Wait();
             Console.WriteLine("Finished");
             Console.ReadKey();
         }

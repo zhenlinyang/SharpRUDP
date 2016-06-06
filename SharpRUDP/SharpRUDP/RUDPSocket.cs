@@ -15,6 +15,10 @@ namespace SharpRUDP
         public IPEndPoint LocalEndPoint;
         public IPEndPoint RemoteEndPoint;
 
+        private int _port;
+        private string _address;
+        private bool _isServer;
+
         public class StateObject
         {
             public byte[] buffer = new byte[bufSize];
@@ -22,6 +26,9 @@ namespace SharpRUDP
 
         protected void Server(string address, int port)
         {
+            _port = port;
+            _address = address;
+            _isServer = true;
             LocalEndPoint = new IPEndPoint(IPAddress.Parse(address), port);
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.ReuseAddress, true);
@@ -31,6 +38,9 @@ namespace SharpRUDP
 
         protected void Client(string address, int port)
         {
+            _port = port;
+            _address = address;
+            _isServer = false;
             bool connect = false;
             IPAddress ipAddress;
             if (IPAddress.TryParse(address, out ipAddress))
@@ -104,7 +114,11 @@ namespace SharpRUDP
             }, state);
         }
 
-        public virtual void SocketError(IPEndPoint ep, Exception ex) { }
+        public virtual void SocketError(IPEndPoint ep, Exception ex)
+        {
+            if (!_isServer)
+                Client(_address, _port);
+        }
 
         public virtual int PacketSending(IPEndPoint endPoint, byte[] data, int length)
         {

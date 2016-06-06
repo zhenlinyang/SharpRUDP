@@ -1,7 +1,7 @@
-﻿using System.Threading;
-using NUnit.Framework;
-using System.Net;
+﻿using NUnit.Framework;
 using System;
+using System.Net;
+using System.Threading;
 
 namespace SharpRUDP.Test
 {

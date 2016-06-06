@@ -1,13 +1,19 @@
-﻿using System;
-using System.Threading;
-using NUnit.Framework;
-using System.Linq;
+﻿using NUnit.Framework;
+using System;
 using System.Net;
+using System.Threading;
 
 namespace SharpRUDP.Test
 {
     public class KeepAliveTest : NUnitTestClass
-    {        
+    {
+        private bool _testServer = false;
+
+        public KeepAliveTest(bool testServer)
+        {
+            _testServer = testServer;
+        }
+
         public override void Run()
         {
             RUDPConnection s = new RUDPConnection();
@@ -23,7 +29,13 @@ namespace SharpRUDP.Test
 
             Console.WriteLine("10 seconds for keepalive START...");
             Thread.Sleep(5000);
+            if (_testServer)
+                c.Disconnect();
+            else
+                s.Disconnect();
+            Thread.Sleep(5000);
             Console.WriteLine("10 seconds for keepalive END!");
+            Thread.Sleep(2500);
 
             s.Disconnect();
             c.Disconnect();
